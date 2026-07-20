@@ -41,34 +41,20 @@ One wrong number can stop an assembly line. NexusAI watches a 72,900-record ware
 
 ## 📸 Screenshots
 
-<table>
-  <tr>
-    <td width="50%">
-      <img src="docs/assets/landing.png" alt="Landing Page — 3D animated cascade network with live exposure" />
-      <p align="center"><b>Landing Page</b> — 3D animated cascade network, live exposure figure</p>
-    </td>
-    <td width="50%">
-      <img src="docs/assets/multi_llm.png" alt="Multi-LLM Architecture — Five GPT-5.4-mini specialists in orbital view" />
-      <p align="center"><b>Multi-LLM Architecture</b> — Five specialists argue from evidence</p>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%">
-      <img src="docs/assets/command_center.png" alt="Command Center — Operational dashboard with cascade map and risk queue" />
-      <p align="center"><b>Command Center</b> — Exposure, cascades, readiness, impact-ranked queue</p>
-    </td>
-    <td width="50%">
-      <img src="docs/assets/agent_workspace.png" alt="Agent Workspace — Streaming chat with specialist mesh and handoff trace" />
-      <p align="center"><b>Agent Workspace</b> — Streaming chat with the mesh, per-specialist handoffs</p>
-    </td>
-  </tr>
-  <tr>
-    <td colspan="2">
-      <img src="docs/assets/outcomes.png" alt="Outcomes — Value ledger with euros protected and ROI tracking" />
-      <p align="center"><b>Outcomes</b> — Value ledger: every approved control with its measurable effect</p>
-    </td>
-  </tr>
-</table>
+### Landing Page
+![Landing Page](docs/assets/landing.png)
+
+### Command Center
+![Command Center](docs/assets/command_center.png)
+
+### Multi-LLM Architecture
+![Multi-LLM Architecture](docs/assets/multi_llm.png)
+
+### Agent Workspace
+![Agent Workspace](docs/assets/agent_workspace.png)
+
+### Outcomes
+![Outcomes](docs/assets/outcomes.png)
 
 <br />
 
@@ -100,25 +86,7 @@ NexusAI is a **multi-agent intelligence mesh** watching a 72,900-record operatio
 
 [![NexusAI Architecture Design](docs/assets/architecture.png)](docs/assets/architecture.png)
 
-### Specialist Handoff Flowchart
-
-```mermaid
-flowchart LR
-    D["Generated operational datasets\nMaster · inventory · dispatch · documents · containers"] --> S["Sentinel\nDetection"]
-    M["Selected ML detector\nHighest validation F1"] --> S
-    S --> C["Correlator\nCross-system linkage"]
-    R["Markdown RAG context\nOperational brief + ingested packets"] --> C
-    C --> G["Cascade\nDependency simulation"]
-    G --> I["Impact\nExposure quantification"]
-    I --> F["Fix\nHuman-approved controls"]
-    S --> N["Nexus Orchestrator"]
-    C --> N
-    G --> N
-    I --> N
-    F --> N
-    N --> H["Operator\nChat answer, node map, approval"]
-    H --> A["Audit trail"]
-```
+> **Diagram vs build:** the diagram shows the production-target architecture (Neo4j, Redis, MinIO, Qdrant, TimescaleDB, MES connectors). The hackathon build implements the same layers with lighter stores — SQLite/Postgres via SQLAlchemy, an in-process dependency graph, markdown-first retrieval — behind the same service boundaries, so each store can be swapped for its production counterpart without touching the agents or the API.
 
 **Layered design:** structured sources (WMS/ERP/TMS/workforce) and unstructured documents (PDF, Excel/CSV, images) feed an ingestion pipeline → a living dependency graph over parts, inventory, orders, dispatches, workers and documents → **six domain AI agents** emit anomalies → an intelligence layer (cascade simulator, euro impact scorer, LLM root-cause reasoner, fix recommender, action orchestrator) → the command-center UI, live over WebSocket.
 

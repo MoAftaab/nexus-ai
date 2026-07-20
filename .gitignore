@@ -17,3 +17,8 @@ uploads/
 backend/knowledge/operational_brief.md
 backend/knowledge/control_playbook.md
 backend/knowledge/ingested/*.md
+backend/datasets/*.csv
+backend/datasets/manifest.json
+*.log
+Thumbs.db
+.DS_Store
