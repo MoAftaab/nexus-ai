@@ -56,10 +56,13 @@ export default function App() {
   }, [])
   useEffect(() => { loadCore() }, [loadCore])
   useEffect(() => { const onHash = () => setPage(window.location.hash.slice(1) || 'home'); window.addEventListener('hashchange', onHash); return () => window.removeEventListener('hashchange', onHash) }, [])
-  // Ctrl+Shift+I: inject a live incident into the twin (presenter shortcut).
+  // Ctrl+Shift+X: inject a live incident into the twin (presenter shortcut).
+  // Not Ctrl+Shift+I — Chrome claims that for DevTools. Disabled on the landing
+  // page, where no Toast is mounted to confirm the injection.
   useEffect(() => {
     const onKey = async (event) => {
-      if (!(event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'i')) return
+      if (!(event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'x')) return
+      if ((window.location.hash.slice(1) || 'home') === 'home') return
       event.preventDefault()
       try {
         const result = await api.injectIncident()
@@ -75,7 +78,11 @@ export default function App() {
       socket = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/operations`)
       socket.onmessage = (event) => {
         try {
-          const message = JSON.parse(event.data); setPulse(message); void refreshFromEvent(message)
+          const message = JSON.parse(event.data)
+          // Only heartbeats carry active_findings; action/document events would
+          // render "undefined active signals" in the indicator.
+          if (message.type === 'pulse') setPulse(message)
+          void refreshFromEvent(message)
         } catch { /* Ignore malformed live events. */ }
       }
       socket.onclose = () => { if (!disposed) retry = window.setTimeout(connect, 2500) }

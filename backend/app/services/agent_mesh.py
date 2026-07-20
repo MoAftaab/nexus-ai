@@ -393,10 +393,16 @@ ORCHESTRATOR_TEMPERATURE = 0.3
 
 
 def _relevant(store: OperationsStore, question: str):
-    """Score and return the top-3 anomalies most relevant to the operator's question."""
+    """Score and return the top-3 OPEN anomalies most relevant to the operator's question.
+
+    Resolved findings are excluded: presenting a fixed defect as the
+    "highest-priority verified path" would contradict the board.
+    """
     terms = {term.lower() for term in question.replace("?", " ").replace(",", " ").split() if len(term) > 2}
     scored = []
     for anomaly in store.anomalies():
+        if anomaly.status == "resolved":
+            continue
         haystack = f"{anomaly.id} {anomaly.title} {anomaly.type} {anomaly.sku} {anomaly.system} {anomaly.zone}".lower()
         scored.append((sum(term in haystack for term in terms), anomaly))
     ordered = [anomaly for _, anomaly in sorted(scored, key=lambda item: (item[0], item[1].impact), reverse=True)]
@@ -454,7 +460,7 @@ def deterministic_mesh(request: ChatRequest, store: OperationsStore) -> ChatResp
     packet, markdown, ids = _evidence_packet(store, request)
     related = [store.anomaly(item_id) for item_id in ids]
     related = [item for item in related if item]
-    lead = related[0] if related else next(iter(store.anomalies()), None)
+    lead = related[0] if related else next((item for item in store.anomalies() if item.status != "resolved"), None)
     trace = [{"agent": name, "role": role, "status": "evidence-ready", "detail": "Used deterministic operational records"} for name, role in SPECIALISTS]
     trace.append({"agent": "Knowledge", "role": "Markdown retrieval", "status": "attached", "detail": f"{len(markdown)} relevant Markdown records"})
     if lead is None:

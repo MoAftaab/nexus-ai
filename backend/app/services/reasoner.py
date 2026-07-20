@@ -33,7 +33,10 @@ CASCADE_EXPLAIN_PROMPT = (
 async def stream_cascade_explanation(anomaly, graph_payload: dict, store: OperationsStore, settings: Settings):
     """SSE narration of one cascade graph; deterministic when no LLM key is set."""
     if not settings.openai_api_key:
-        chain = " → ".join(f"{edge['source'].split('-')[-1]} ({edge['probability']}%)" for edge in graph_payload.get("edges", []))
+        edges = graph_payload.get("edges", [])
+        chain = " → ".join(f"{edge['source'].split('-')[-1]} ({edge['probability']}%)" for edge in edges)
+        if edges:
+            chain += f" → {edges[-1]['target'].split('-')[-1]}"
         simulation = graph_payload.get("simulation", {})
         text = (
             f"**{anomaly.title}.** {anomaly.summary} Propagation path: {chain or 'no downstream edges'}. "

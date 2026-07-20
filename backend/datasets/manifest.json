@@ -1,6 +1,6 @@
 {
-  "seed": 2115824990,
-  "generated_at": "2026-07-20T06:00:52+00:00",
+  "seed": 1234,
+  "generated_at": "2026-07-20T12:11:52+00:00",
   "tables": {
     "master_skus": 5000,
     "inventory_positions": 15000,

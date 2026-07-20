@@ -290,19 +290,21 @@ function CountUp({ value, decimals = 1, suffix = '%' }) {
   useEffect(() => {
     const element = ref.current
     if (!element) return
+    let frame = 0; let disposed = false
     const observer = new IntersectionObserver(([entry]) => {
       if (!entry.isIntersecting) return
       observer.disconnect()
       const start = performance.now()
       const step = (now) => {
+        if (disposed) return
         const progress = Math.min(1, (now - start) / 1100)
         setDisplay(value * (1 - Math.pow(1 - progress, 3)))
-        if (progress < 1) window.requestAnimationFrame(step)
+        if (progress < 1) frame = window.requestAnimationFrame(step)
       }
-      window.requestAnimationFrame(step)
+      frame = window.requestAnimationFrame(step)
     }, { rootMargin: '-40px' })
     observer.observe(element)
-    return () => observer.disconnect()
+    return () => { disposed = true; window.cancelAnimationFrame(frame); observer.disconnect() }
   }, [value])
   return <strong ref={ref}>{display.toFixed(decimals)}{suffix}</strong>
 }

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Check, ChevronRight, CloudLightning, LoaderCircle, Presentation, RotateCcw, X, Zap } from 'lucide-react'
 import { api } from '../api'
 
@@ -17,16 +17,19 @@ export function DemoTour({ open, onClose, onNavigate, onReset }) {
   const [injecting, setInjecting] = useState(false)
   const [lastIncident, setLastIncident] = useState('')
   const [confirmReset, setConfirmReset] = useState(false)
+  // The component stays mounted while closed; a Reset left armed must not
+  // survive into the next open, or one stray click wipes the demo.
+  useEffect(() => { if (!open) { setConfirmReset(false); setLastIncident('') } }, [open])
   if (!open) return null
   const current = script[step]
   const inject = async () => {
-    setInjecting(true); setLastIncident('')
+    setInjecting(true); setLastIncident(''); setConfirmReset(false)
     try { const result = await api.injectIncident(); setLastIncident(result.injected ? result.incident.story : result.detail) }
     catch (cause) { setLastIncident(cause.message) }
     finally { setInjecting(false) }
   }
   const storm = async () => {
-    setInjecting(true); setLastIncident('')
+    setInjecting(true); setLastIncident(''); setConfirmReset(false)
     try {
       const result = await api.injectStorm()
       setLastIncident(result.injected ? `Storm: ${result.incidents.length} simultaneous incidents — ${result.incidents.map((item) => item.type).join(', ')}. Watch the queue re-rank by impact.` : result.detail)
@@ -56,7 +59,7 @@ export function DemoTour({ open, onClose, onNavigate, onReset }) {
       {lastIncident && <p className="tour-incident"><Zap size={12} /> {lastIncident}</p>}
       <div className="tour-actions">
         <div className="tour-inject-group">
-          <button className="soft-button" onClick={inject} disabled={injecting} title="Also on Ctrl+Shift+I">{injecting ? <LoaderCircle size={13} className="spin" /> : <Zap size={13} />}Incident</button>
+          <button className="soft-button" onClick={inject} disabled={injecting} title="Also on Ctrl+Shift+X">{injecting ? <LoaderCircle size={13} className="spin" /> : <Zap size={13} />}Incident</button>
           <button className="soft-button" onClick={storm} disabled={injecting} title="Inject 3 incidents at once">{injecting ? <LoaderCircle size={13} className="spin" /> : <CloudLightning size={13} />}Storm</button>
           <button className={`soft-button ${confirmReset ? 'reset-armed' : ''}`} onClick={reset} disabled={injecting} title="Regenerate the twin and clear all stats">{injecting ? <LoaderCircle size={13} className="spin" /> : <RotateCcw size={13} />}{confirmReset ? 'Confirm?' : 'Reset'}</button>
         </div>

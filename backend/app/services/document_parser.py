@@ -69,14 +69,24 @@ async def inspect_and_index(store, settings: Settings, filename: str, raw: bytes
     uploads = Path(settings.uploads_dir).resolve(); uploads.mkdir(parents=True, exist_ok=True)
     suffix = Path(filename).suffix.lower() or ".bin"
     stored = uploads / f"{document_id}{suffix}"
+    preview_path = uploads / f"{document_id}.preview.png"
+    # Parse BEFORE writing anything to disk: a corrupt file raises here and
+    # leaves no orphaned upload or preview behind the 422 response.
+    text = extract_text(filename, raw)
     stored.write_bytes(raw)
-    preview = render_preview(filename, raw, uploads / f"{document_id}.preview.png")
-    text = await extract_with_openai_vision(settings, filename, preview, extract_text(filename, raw))
-    result = store.inspect_document(filename, text)
-    markdown_record = index_document(filename, result.type, text, result.summary, result.mismatches)
-    markdown_path = str((Path(__file__).resolve().parents[2] / "knowledge" / "ingested" / markdown_record).resolve())
-    result.fields.append({"label": "Knowledge record", "value": markdown_record})
-    store.record_document(document_id, result, str(stored), markdown_path)
+    try:
+        preview = render_preview(filename, raw, preview_path)
+        text = await extract_with_openai_vision(settings, filename, preview, text)
+        result = store.inspect_document(filename, text)
+        markdown_record = index_document(filename, result.type, text, result.summary, result.mismatches)
+        markdown_path = str((Path(__file__).resolve().parents[2] / "knowledge" / "ingested" / markdown_record).resolve())
+        result.fields.append({"label": "Knowledge record", "value": markdown_record})
+        store.record_document(document_id, result, str(stored), markdown_path)
+    except Exception:
+        # Roll back partial artifacts so retrieval never sees a ghost document.
+        stored.unlink(missing_ok=True)
+        preview_path.unlink(missing_ok=True)
+        raise
     result.document_id = document_id
     result.preview_url = f"/api/documents/{document_id}/preview" if preview else None
     return result

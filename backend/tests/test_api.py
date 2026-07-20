@@ -180,10 +180,15 @@ def test_demo_reset_regenerates_a_clean_board():
 
 
 def test_replenishment_gap_is_detected_and_fix_raises_a_po():
-    items = client.get("/api/anomalies").json()["items"]
-    finding = next((item for item in items if item["type"] == "Replenishment risk"), None)
-    assert finding is not None, "The seeded twin must include a below-reorder-point gap"
-    assert finding["status"] != "resolved"
+    def open_replenishment():
+        return next((item for item in client.get("/api/anomalies").json()["items"] if item["type"] == "Replenishment risk" and item["status"] != "resolved"), None)
+
+    finding = open_replenishment()
+    if finding is None:
+        # Earlier tests may have resolved the seeded gap; inject a fresh one.
+        assert client.post("/api/demo/inject", params={"type": "replenish"}).json()["injected"] is True
+        finding = open_replenishment()
+    assert finding is not None, "A below-reorder-point gap must be detectable"
     assert "no inbound PO" in finding["title"]
     assert any(evidence["label"] == "Reorder point" for evidence in finding["evidence"])
     # Approving the control raises a covering PO, which resolves the finding
@@ -194,8 +199,6 @@ def test_replenishment_gap_is_detected_and_fix_raises_a_po():
     assert resolved["status"] == "resolved"
     client.post("/api/scan")
     assert client.get(f"/api/anomalies/{finding['id']}").json()["status"] == "resolved"
-    open_replenish = [item for item in client.get("/api/anomalies").json()["items"] if item["type"] == "Replenishment risk" and item["status"] != "resolved"]
-    assert not open_replenish, "The raised PO must cover the gap on rescan"
 
 
 def test_incident_report_downloads_as_markdown():
@@ -345,3 +348,46 @@ def test_ml_scores_are_persisted_with_the_run():
     ml_metadata = loaded["run"].metadata_json.get("ml_model", {})
     assert ml_metadata.get("inventory_scores"), "Persisted runs must carry ML scores so boots skip retraining"
     assert len(ml_metadata["inventory_scores"]) == len(store._dataset.inventory)
+
+
+def test_remediation_is_scoped_to_one_finding():
+    """Fixing one finding must not silently repair or vaporize a same-type sibling."""
+    client.post("/api/demo/reset")
+    items = client.get("/api/anomalies").json()["items"]
+    master_data = [item for item in items if item["type"] == "Master data conflict" and item["status"] != "resolved"]
+    assert len(master_data) >= 2, "Seeded board has fitment + weight findings of the same type"
+    target, sibling = master_data[0], master_data[1]
+    for action in target["actions"]:
+        client.post(f"/api/anomalies/{target['id']}/actions/{action['id']}/apply")
+    client.post("/api/scan")
+    after = {item["id"]: item["status"] for item in client.get("/api/anomalies").json()["items"]}
+    assert after.get(target["id"]) == "resolved"
+    assert after.get(sibling["id"]) == "open", "The sibling finding must survive with its own defect intact"
+
+
+def test_reinjected_entity_starts_with_fresh_actions():
+    """A resolved entity re-broken by injection must not inherit 'applied' action flags."""
+    for anomaly in client.get("/api/anomalies").json()["items"]:
+        if anomaly["type"] == "Dispatch readiness" and anomaly["status"] != "resolved":
+            for action in anomaly["actions"]:
+                client.post(f"/api/anomalies/{anomaly['id']}/actions/{action['id']}/apply")
+    client.post("/api/scan")
+    response = client.post("/api/demo/inject", params={"type": "overload"}).json()
+    assert response["injected"] is True
+    assert response["new_findings"], "Re-broken entity must be reported as a new finding even if its ID was seen before"
+    fresh = client.get(f"/api/anomalies/{response['new_findings'][0]['id']}").json()
+    assert fresh["status"] == "open"
+    assert all(action["status"] == "recommended" for action in fresh["actions"]), "Fresh incarnation must not inherit applied flags"
+
+
+def test_injected_findings_survive_in_database():
+    """Live-injected findings must be inserted (not just updated) so restarts keep them."""
+    from app.db import AnomalyModel
+    from sqlalchemy import select as sa_select
+    response = client.post("/api/demo/inject", params={"type": "weight"}).json()
+    assert response["injected"] is True and response["new_findings"]
+    injected_id = response["new_findings"][0]["id"]
+    with store.repository.session() as session:
+        row = session.scalar(sa_select(AnomalyModel).where(AnomalyModel.anomaly_id == injected_id))
+    assert row is not None, "persist_anomalies must INSERT findings born after boot"
+    assert row.status == "open"

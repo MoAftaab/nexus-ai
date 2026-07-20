@@ -16,7 +16,7 @@ from app.services.ml_detection import ModelSelection, score_records, select_best
 from app.services.knowledge_base import KNOWLEDGE_DIR, list_ingested_documents, prepare_operational_markdown, retrieve_markdown
 from app.services.seed import SyntheticDataset, build_reconciliation_rows, detect_anomalies, generate_dataset
 
-DATASET_SCHEMA_VERSION = "2026.07.20.4"
+DATASET_SCHEMA_VERSION = "2026.07.20.5"
 
 
 class OperationsStore:
@@ -223,16 +223,19 @@ class OperationsStore:
             return deepcopy(anomaly), action.title
 
     def _remediate(self, anomaly: Anomaly) -> str:
-        """Correct the source-twin records behind a finding. Returns a human summary.
+        """Correct the source-twin records behind ONE finding. Returns a human summary.
 
-        Detection scans the same dataset on every /api/scan, so once these fields
-        are corrected the finding does not reappear — the loop is genuinely closed.
+        Scoped to the anomaly's own entity: sibling findings of the same type keep
+        their defects (and their own approval flow). Detection scans the same
+        dataset on every /api/scan, so the corrected finding does not reappear.
         """
         data = self._dataset
         fixed: list[str] = []
         if anomaly.type == "Master data conflict":
             updates = {}
             for sku in data.skus:
+                if sku["id"] != anomaly.sku:
+                    continue
                 changed = {}
                 if sku["fitment_wms"] != sku["fitment_erp"]:
                     sku["fitment_wms"] = sku["fitment_erp"]; changed["fitment_wms"] = sku["fitment_wms"]
@@ -246,7 +249,7 @@ class OperationsStore:
         elif anomaly.type == "Inventory reconciliation":
             updates = {}
             for row in data.inventory:
-                if max(row["wms"], row["erp"], row["physical"]) - min(row["wms"], row["erp"], row["physical"]) >= 25:
+                if row["sku"] == anomaly.sku and max(row["wms"], row["erp"], row["physical"]) - min(row["wms"], row["erp"], row["physical"]) >= 25:
                     truth = row["physical"]
                     row["wms"] = row["erp"] = row["tms"] = truth
                     updates[row["id"]] = {"wms": truth, "erp": truth, "tms": truth}
@@ -254,14 +257,14 @@ class OperationsStore:
             self.repository.update_source_records(self._run_id, InventoryPositionModel, updates)
         elif anomaly.type == "Document intelligence":
             for document in data.documents:
-                if not document["ppap_attached"]:
+                if document["sku"] == anomaly.sku and not document["ppap_attached"]:
                     document["ppap_attached"] = True
                     self.repository.update_source_document(document["id"], {"ppap_attached": True})
                     fixed.append(f"attached PPAP evidence to batch {document['batch']}")
         elif anomaly.type == "Supplier reliability":
             updates = {}
             for supplier in data.suppliers:
-                if supplier["actual_lead"] - supplier["configured_lead"] >= 3:
+                if supplier["name"] in anomaly.title and supplier["actual_lead"] - supplier["configured_lead"] >= 3:
                     supplier["configured_lead"] = round(supplier["actual_lead"])
                     updates[supplier["id"]] = {"configured_lead": supplier["configured_lead"]}
                     fixed.append(f"refreshed {supplier['name']} lead time to {supplier['configured_lead']} days")
@@ -269,6 +272,9 @@ class OperationsStore:
         elif anomaly.type == "Dispatch readiness":
             updates = {}
             for dispatch in data.dispatches:
+                # A dispatch finding names either the dispatch ID (overload) or its dock (labels).
+                if dispatch["id"] not in anomaly.title and dispatch["dock"] != anomaly.zone:
+                    continue
                 changed = {}
                 if dispatch["label_success"] < dispatch["total_labels"]:
                     dispatch["label_success"] = dispatch["total_labels"]; changed["label_success"] = dispatch["total_labels"]
@@ -293,8 +299,9 @@ class OperationsStore:
         elif anomaly.type == "SLA escalation":
             updates = {}
             for order in data.outbound_orders:
-                promised = datetime.fromisoformat(order["promised_at"]) if isinstance(order["promised_at"], str) else order["promised_at"]
-                if order["priority"] <= 2 and order["picked_qty"] < order["ordered_qty"] and promised <= data.generated_at + timedelta(hours=12):
+                if order["id"] not in anomaly.title:
+                    continue
+                if order["picked_qty"] < order["ordered_qty"]:
                     order["picked_qty"] = order["ordered_qty"]; order["pick_status"] = "completed"
                     updates[order["id"]] = {"picked_qty": order["picked_qty"], "pick_status": "completed"}
                     fixed.append(f"expedited pick completed for {order['id']}")
@@ -307,6 +314,8 @@ class OperationsStore:
                 stock_by_sku[row["sku"]] = stock_by_sku.get(row["sku"], 0) + row["wms"]
             covered = {order["sku"] for order in data.inbound_orders if order["expected_date"] >= data.generated_at.date().isoformat()}
             for sku in data.skus:
+                if sku["id"] != anomaly.sku:
+                    continue
                 total = stock_by_sku.get(sku["id"])
                 if total is None or sku["id"] in covered or total > sku["reorder_point"]:
                     continue
@@ -318,7 +327,7 @@ class OperationsStore:
         elif anomaly.type == "Compliance":
             updates = {}
             for sku in data.skus:
-                if sku["storage_class"] == "hazmat" and not sku["hazmat"]:
+                if sku["id"] == anomaly.sku and sku["storage_class"] == "hazmat" and not sku["hazmat"]:
                     sku["hazmat"] = True; updates[sku["id"]] = {"hazmat": True}
                     fixed.append(f"restored hazmat handling flag on {sku['id']}")
             self.repository.update_source_records(self._run_id, MasterSkuModel, updates)
@@ -333,7 +342,7 @@ class OperationsStore:
         elif anomaly.type == "Warehouse execution":
             updates = {}
             for sku in data.skus:
-                if not sku["bin_active"]:
+                if sku["id"] == anomaly.sku and not sku["bin_active"]:
                     sku["bin_active"] = True; updates[sku["id"]] = {"bin_active": True}
                     fixed.append(f"republished slotting rule for {sku['id']}")
             self.repository.update_source_records(self._run_id, MasterSkuModel, updates)
@@ -343,13 +352,24 @@ class OperationsStore:
 
     def reset_demo(self) -> dict[str, object]:
         """Regenerate the operational twin from scratch: new dataset, fresh findings,
-        cleared value ledger. The one-click equivalent of reset_demo.bat."""
+        cleared value ledger and audit log. The one-click equivalent of reset_demo.bat.
+
+        Generation + model training (~14s worst case) run OUTSIDE the lock so
+        concurrent readers keep serving the old board; the swap itself is brief.
+        """
+        dataset = generate_dataset(self.settings.demo_seed)
+        selection = select_best_inventory_model(dataset.inventory, dataset.seed)
+        anomalies = detect_anomalies(dataset, selection.inventory_scores)
         with self._lock:
-            self._dataset = generate_dataset(self.settings.demo_seed)
-            self._ml_selection = select_best_inventory_model(self._dataset.inventory, self._dataset.seed)
-            self._anomalies = detect_anomalies(self._dataset, self._ml_selection.inventory_scores)
+            self._dataset = dataset
+            self._ml_selection = selection
+            self._anomalies = anomalies
             self._run_id = self.repository.save_run(self._dataset, self._anomalies, {"dataset_schema": DATASET_SCHEMA_VERSION, "ml_model": self._ml_metadata(include_scores=True)})
             self.repository.clear_outcomes()
+            # With a fixed seed the fresh board reuses deterministic anomaly IDs;
+            # keeping old audit rows would bleed last session's approvals into
+            # brand-new findings' incident reports.
+            self.repository.clear_audit()
             export_dataset(self._dataset)
             prepare_operational_markdown(self._dataset)
             self.cascade_engine = CascadeEngine(self._dataset.seed)
@@ -377,7 +397,10 @@ class OperationsStore:
                     break
             if not injected:
                 return {"injected": False, "detail": "Every injectable record of the requested type already carries an active defect."}
-            before_ids = {anomaly.id for anomaly in self._anomalies}
+            # Diff against OPEN findings only: a re-broken remediated entity reuses
+            # its deterministic ID, and its resolved record is replaced by the fresh
+            # open incarnation — that is a new finding from the operator's view.
+            before_ids = {anomaly.id for anomaly in self._anomalies if anomaly.status != "resolved"}
         scan = self.run_scan()
         with self._lock:
             fresh = [anomaly for anomaly in self._anomalies if anomaly.id not in before_ids and anomaly.status != "resolved"]
@@ -528,7 +551,11 @@ class OperationsStore:
         with self._lock:
             self._scan_count += 1
             self._last_scan = datetime.now(timezone.utc)
-            previous_actions = {action.id: action.status for anomaly in self._anomalies for action in anomaly.actions}
+            # Only open findings' approval progress carries across scans. A resolved
+            # finding whose entity gets re-broken produces the same deterministic ID;
+            # its fresh incarnation must start with clean "recommended" actions, not
+            # inherit the old "applied" flags.
+            previous_actions = {action.id: action.status for anomaly in self._anomalies if anomaly.status != "resolved" for action in anomaly.actions}
             resolved = [anomaly for anomaly in self._anomalies if anomaly.status == "resolved"]
             detected = detect_anomalies(self._dataset, self._ml_selection.inventory_scores)
             # Remediated defects are gone from the source data, so they are not
@@ -536,6 +563,8 @@ class OperationsStore:
             detected_ids = {anomaly.id for anomaly in detected}
             self._anomalies = detected + [anomaly for anomaly in resolved if anomaly.id not in detected_ids]
             for anomaly in self._anomalies:
+                if anomaly.status == "resolved":
+                    continue
                 for action in anomaly.actions:
                     action.status = previous_actions.get(action.id, action.status)
             self.repository.persist_anomalies(self._run_id, self._anomalies)

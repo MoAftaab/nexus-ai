@@ -16,15 +16,21 @@ function LogisticsNode({ data, selected }) {
 }
 
 const nodeTypes = { logistics: LogisticsNode }
-const positions = {
-  fitment: [40, 165], supplier: [40, 392], count: [40, 280], ppap: [40, 392],
-  sequence: [350, 165], inventory: [350, 390], quality: [350, 520], replenish: [350, 280],
-  dock: [670, 165], linefeed: [670, 280], station: [970, 205], assembly: [670, 500],
+
+// Nodes lay out by their role suffix (AN-xxxx-source → column 0, etc.) so
+// cascades read left-to-right; unknown roles fall back to a grid.
+const ROLE_COLUMNS = { source: 0, sequence: 1, plan: 1, load: 1, pick: 1, quality: 1, dock: 2, line: 2, station: 3, outcome: 2 }
+
+const nodePosition = (node, index) => {
+  const role = node.id.split('-').pop()
+  const column = ROLE_COLUMNS[role]
+  if (column !== undefined) return { x: 40 + column * 320, y: 165 + (index % 2) * 150 }
+  return { x: 40 + (index % 3) * 320, y: 100 + Math.floor(index / 3) * 170 }
 }
 
 const toFlowNodes = (graph, activeId) => (graph?.nodes || []).map((node, index) => ({
   id: node.id, type: 'logistics',
-  position: { x: positions[node.id]?.[0] ?? 40 + (index % 3) * 320, y: positions[node.id]?.[1] ?? 100 + Math.floor(index / 3) * 170 },
+  position: nodePosition(node, index),
   data: { node }, selected: activeId === node.id,
 }))
 const toFlowEdges = (graph) => (graph?.edges || []).map((edge, index) => ({
@@ -40,7 +46,15 @@ export function CascadeGraph({ graph, selectedId, onSelect, compact = false }) {
   // only when the underlying cascade (not the selection) changes.
   const [nodes, setNodes, onNodesChange] = useNodesState(toFlowNodes(graph, selectedId))
   const [edges, setEdges, onEdgesChange] = useEdgesState(toFlowEdges(graph))
-  useEffect(() => { setNodes(toFlowNodes(graph, activeId)); setEdges(toFlowEdges(graph)) }, [graph]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    // Re-seed on graph change, but keep positions the user dragged: live events
+    // refetch the graph frequently and must not snap the layout back.
+    setNodes((current) => {
+      const kept = new Map(current.map((node) => [node.id, node.position]))
+      return toFlowNodes(graph, activeId).map((node) => kept.has(node.id) ? { ...node, position: kept.get(node.id) } : node)
+    })
+    setEdges(toFlowEdges(graph))
+  }, [graph]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     setActiveId(selectedId)
     setNodes((current) => current.map((node) => ({ ...node, selected: node.id === selectedId })))

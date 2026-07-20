@@ -194,10 +194,15 @@ class Repository:
                 payload = anomaly.model_dump(mode="json")
                 if row:
                     row.payload = payload; row.status = anomaly.status; row.severity = anomaly.severity; row.impact = anomaly.impact
+                else:
+                    # Findings born after boot (live injections) must survive restarts.
+                    session.add(AnomalyModel(run_id=run_id, anomaly_id=anomaly.id, severity=anomaly.severity, status=anomaly.status, impact=anomaly.impact, payload=payload))
                 for action in anomaly.actions:
                     action_row = session.scalar(select(FixActionModel).where(FixActionModel.action_id == action.id))
                     if action_row:
                         action_row.status = action.status; action_row.payload = action.model_dump(mode="json")
+                    else:
+                        session.add(FixActionModel(anomaly_id=anomaly.id, action_id=action.id, status=action.status, payload=action.model_dump(mode="json")))
 
     def add_audit(self, event_id: str, event_type: str, actor: str, payload: dict[str, Any]) -> None:
         with self.session() as session:
@@ -212,6 +217,13 @@ class Repository:
         outcome rows describe findings that no longer exist on the new board."""
         with self.session() as session:
             session.execute(delete(OutcomeModel))
+
+    def clear_audit(self) -> None:
+        """Reset the audit log alongside the twin: with a fixed seed, regenerated
+        findings reuse their deterministic IDs, so stale audit rows would bleed
+        last session's history into fresh incident reports."""
+        with self.session() as session:
+            session.execute(delete(AuditLogModel))
 
     def outcomes(self, limit: int = 200) -> list[dict[str, Any]]:
         with self.session() as session:

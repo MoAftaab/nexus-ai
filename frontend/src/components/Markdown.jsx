@@ -1,10 +1,16 @@
 import { Fragment } from 'react'
 
-const inlinePattern = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g
+// Bold matches lazily across any content (so nested italics stay inside it);
+// bare italic/code match unnested runs. Order matters: ** before *.
+const inlinePattern = /(\*\*.+?\*\*|\*[^*\n]+\*|`[^`]+`)/g
 
 function Inline({ text }) {
   return text.split(inlinePattern).map((part, index) => {
-    if (part.startsWith('**') && part.endsWith('**')) return <strong key={index}>{part.slice(2, -2)}</strong>
+    if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
+      const inner = part.slice(2, -2)
+      // LLM output nests italics inside bold ("**bold *emph* rest**").
+      return <strong key={index}><Inline text={inner} /></strong>
+    }
     if (part.startsWith('`') && part.endsWith('`')) return <code key={index}>{part.slice(1, -1)}</code>
     if (part.startsWith('*') && part.endsWith('*') && part.length > 2) return <em key={index}>{part.slice(1, -1)}</em>
     return <Fragment key={index}>{part}</Fragment>

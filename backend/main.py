@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile, WebSocket
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -132,7 +132,7 @@ async def apply_action(anomaly_id: str, action_id: str) -> dict[str, object]:
 
 @app.post("/api/scan")
 async def scan() -> dict[str, object]:
-    result = store.run_scan()
+    result = await asyncio.to_thread(store.run_scan)
     await event_bus.publish("scan_complete", result)
     return result
 
@@ -141,7 +141,9 @@ async def scan() -> dict[str, object]:
 async def demo_inject(incident_type: str | None = Query(default=None, alias="type")) -> dict[str, object]:
     if incident_type and incident_type != "random" and incident_type not in OperationsStore.INJECTABLE_INCIDENTS:
         raise HTTPException(status_code=422, detail=f"Unknown incident type; use one of {', '.join(OperationsStore.INJECTABLE_INCIDENTS)} or random")
-    result = store.inject_incident(incident_type)
+    # to_thread: the first inventory injection rebuilds the classifier (~seconds);
+    # keeping it off the event loop keeps /api/health and the WS pulse alive.
+    result = await asyncio.to_thread(store.inject_incident, incident_type)
     if result.get("injected"):
         await event_bus.publish("scan_complete", {"scan_id": result["scan_id"], "findings": len(result["new_findings"])})
     return result
@@ -149,7 +151,7 @@ async def demo_inject(incident_type: str | None = Query(default=None, alias="typ
 
 @app.post("/api/demo/storm")
 async def demo_storm(count: int = Query(default=3, ge=1, le=5)) -> dict[str, object]:
-    result = store.inject_storm(count)
+    result = await asyncio.to_thread(store.inject_storm, count)
     if result.get("injected"):
         await event_bus.publish("scan_complete", {"scan_id": result["scan_id"], "findings": result["findings"]})
     return result
@@ -157,7 +159,8 @@ async def demo_storm(count: int = Query(default=3, ge=1, le=5)) -> dict[str, obj
 
 @app.post("/api/demo/reset")
 async def demo_reset() -> dict[str, object]:
-    result = store.reset_demo()
+    # Model training runs ~14s; off the event loop so the server stays responsive.
+    result = await asyncio.to_thread(store.reset_demo)
     await event_bus.publish("scan_complete", {"scan_id": "RESET", "findings": result["findings"]})
     return result
 
@@ -315,7 +318,10 @@ async def operations_socket(websocket: WebSocket) -> None:
                 "agent": "Sentinel",
             })
             await asyncio.sleep(5)
-    except WebSocketDisconnect:
+    except Exception:
+        # Any send failure (not only WebSocketDisconnect) means the socket is gone.
+        pass
+    finally:
         event_bus.disconnect(websocket)
 
 
