@@ -1,7 +1,5 @@
 <div align="center">
 
-<img src="docs/assets/architecture.png" width="120" alt="NexusAI Logo" />
-
 # 🧠 NexusAI
 
 ### Multi-Agent Supply-Chain Cascade Intelligence Platform
@@ -17,17 +15,29 @@
 
 **_"Don't just find the fire. Predict the wildfire."_**
 
+[![NexusAI Hero Landing](docs/assets/landing.png)](docs/assets/landing.png)
+
 One wrong number can stop an assembly line. NexusAI watches a 72,900-record warehouse digital twin across ERP, WMS, and TMS — detects the data drift no human would catch in time, traces the cascade to its euro consequence, and fixes the source with a human approving every change.
 
 <br />
 
-[🚀 Quick Start](#-quick-start) · [🏛 Architecture](#-architecture) · [✨ Features](#-what-nexusai-does) · [🌐 API Reference](#-api-reference-30-endpoints) · [🔄 Closed Loop](#-the-closed-loop-why-this-demo-is-different) · [🎬 Demo Playbook](#-demo-playbook) · [✅ Testing](#-testing--verification-26-tests) · [📁 Project Structure](#-project-structure)
+[🚀 Quick Start](#-quick-start) · [🏛 Architecture](#-architecture) · [✨ Features](#-what-nexusai-does) · [🌐 API Reference](#-api-reference-33-endpoints) · [🔄 Closed Loop](#-the-closed-loop-why-this-demo-is-different) · [🎬 Demo Playbook](#-demo-playbook) · [✅ Testing](#-testing--verification-26-tests) · [📁 Project Structure](#-project-structure)
 
 ---
 
 </div>
 
 <br />
+
+## ⚡ Features (Short & Precise)
+
+* **Autopilot Drift Detection:** Instantly flags mismatched inventory records, weight differences, and supplier lead-time delays across WMS, ERP, and TMS.
+* **Downstream Cascade Tracing:** Maps dependencies automatically using a live graph database to simulate how minor record errors propagate into line-stoppages.
+* **Euro Exposure Scoring:** Runs 1,000-trial Monte-Carlo simulations to calculate tail risks (P90) in real Euros, prioritizing incidents by cost.
+* **Human-in-the-Loop Fixes:** Corrects data at the source (rebuilding ERP/WMS database records) upon one-click human approval.
+* **Auditable Value Ledger:** Records precisely how many Euros were protected by every action, guaranteeing full, test-enforced accounting.
+
+---
 
 ## 📸 Screenshots
 
@@ -85,6 +95,12 @@ NexusAI is a **multi-agent intelligence mesh** watching a 72,900-record operatio
 ---
 
 ## 🏛 Architecture
+
+### Design Diagram
+
+[![NexusAI Architecture Design](docs/assets/architecture.png)](docs/assets/architecture.png)
+
+### Specialist Handoff Flowchart
 
 ```mermaid
 flowchart LR
