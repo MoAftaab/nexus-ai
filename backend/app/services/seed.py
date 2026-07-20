@@ -72,11 +72,16 @@ def generate_dataset(seed: int | None = None) -> SyntheticDataset:
     effective_seed = seed if seed is not None else int(generated_at.timestamp() * 1000) % 2_147_483_647
     rng = random.Random(effective_seed)
     supplier_names = [*SUPPLIERS, *(f"{rng.choice(('Alpine', 'Hansa', 'Kern', 'Motive', 'Prisma'))} {rng.choice(('Automotive', 'Mobility', 'Systems', 'Components'))} {index:03}" for index in range(6, 201))]
-    suppliers = [{"id": f"SUP-{index + 1:03}", "name": name, "configured_lead": rng.randint(3, 7), "actual_lead": round(rng.uniform(3.1, 7.3), 1), "reliability": round(rng.uniform(.84, .98), 2)} for index, name in enumerate(supplier_names)]
+    # Observed lead time tracks the configured master (drift < 3 days) so only the
+    # injected stale-lead supplier below trips the reliability detector.
+    suppliers = [{"id": f"SUP-{index + 1:03}", "name": name, "configured_lead": (configured_lead := rng.randint(3, 7)), "actual_lead": round(configured_lead + rng.uniform(-.8, 1.6), 1), "reliability": round(rng.uniform(.84, .98), 2)} for index, name in enumerate(supplier_names)]
     skus: list[dict[str, Any]] = []
     for index in range(TARGET_COUNTS["master_skus"]):
         family = rng.choice(tuple(PART_FAMILIES))
         name = rng.choice(PART_FAMILIES[family])
+        # Hazmat storage and handling flag stay consistent at generation time; the
+        # single conflicting record is injected below for the compliance detector.
+        is_hazmat = family == "Fluids" and rng.random() < .35
         sku = {
             "id": f"{family[:2].upper()}-{rng.randint(1000, 9999)}-{index:03}",
             "description": f"{name} {rng.choice(('LH', 'RH', 'Gen 2', 'Premium'))}",
@@ -86,8 +91,8 @@ def generate_dataset(seed: int | None = None) -> SyntheticDataset:
             "erp_weight_kg": None,
             "fitment_wms": rng.choice(("LH", "RH")),
             "fitment_erp": None,
-            "storage_class": "hazmat" if family == "Fluids" and rng.random() < .35 else "ambient",
-            "hazmat": family == "Fluids" and rng.random() < .4,
+            "storage_class": "hazmat" if is_hazmat else "ambient",
+            "hazmat": is_hazmat,
             "supplier": rng.choice(suppliers)["id"],
             "bin": f"{rng.choice(ZONES)}-{rng.randint(1, 18):02}",
             "bin_active": True,
