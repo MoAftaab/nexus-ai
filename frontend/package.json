@@ -1,0 +1,27 @@
+{
+  "name": "nexusai-command-center",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "eslint src --max-warnings=0"
+  },
+  "dependencies": {
+    "@xyflow/react": "12.8.6",
+    "framer-motion": "12.23.12",
+    "lucide-react": "0.468.0",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "recharts": "2.15.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "4.4.1",
+    "eslint": "9.17.0",
+    "eslint-plugin-react": "7.37.3",
+    "eslint-plugin-react-hooks": "5.1.0",
+    "vite": "6.0.7"
+  }
+}
