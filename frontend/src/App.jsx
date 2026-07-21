@@ -75,7 +75,11 @@ export default function App() {
   useEffect(() => {
     let socket; let retry; let disposed = false
     const connect = () => {
-      socket = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/operations`)
+      // When the API lives on another origin (deployed split), derive the WS
+      // endpoint from VITE_API_URL; locally the Vite proxy forwards /ws.
+      const apiBase = import.meta.env.VITE_API_URL
+      const wsBase = apiBase ? apiBase.replace(/^http/, 'ws') : `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`
+      socket = new WebSocket(`${wsBase}/ws/operations`)
       socket.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data)

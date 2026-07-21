@@ -1,0 +1,16 @@
+name: Keep backend awake
+
+on:
+  schedule:
+    # Every 10 minutes; Render free instances sleep after 15 idle minutes.
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping health endpoint
+        run: |
+          curl --fail --silent --show-error --max-time 90 \
+            "${{ vars.BACKEND_URL || 'https://nexus-ai-backend.onrender.com' }}/api/health"

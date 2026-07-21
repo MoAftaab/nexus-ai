@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: nexus-ai-backend
+    runtime: docker
+    plan: free
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false # set in the Render dashboard, never committed
+      - key: OPENAI_MODEL
+        value: gpt-5.4-mini
+      - key: FRONTEND_URL
+        sync: false # set to the Vercel URL once known
+      - key: DEMO_MODE
+        value: "true"
+      - key: DATABASE_URL
+        value: sqlite:///./nexus.db
+      - key: UPLOADS_DIR
+        value: ./uploads
