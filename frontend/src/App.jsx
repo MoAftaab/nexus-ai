@@ -56,6 +56,14 @@ export default function App() {
   }, [])
   useEffect(() => { loadCore() }, [loadCore])
   useEffect(() => { const onHash = () => setPage(window.location.hash.slice(1) || 'home'); window.addEventListener('hashchange', onHash); return () => window.removeEventListener('hashchange', onHash) }, [])
+  // Mobile sidebar: close on Escape and lock body scroll while open.
+  useEffect(() => {
+    if (!sidebarOpen) return
+    const onKey = (event) => { if (event.key === 'Escape') setSidebarOpen(false) }
+    window.addEventListener('keydown', onKey)
+    document.body.style.overflow = 'hidden'
+    return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = '' }
+  }, [sidebarOpen])
   // Ctrl+Shift+X: inject a live incident into the twin (presenter shortcut).
   // Not Ctrl+Shift+I — Chrome claims that for DevTools. Disabled on the landing
   // page, where no Toast is mounted to confirm the injection.
@@ -119,7 +127,8 @@ export default function App() {
   // The landing page owns the full viewport — no sidebar, topbar or drawers.
   if (page === 'home') return <Landing onEnter={() => navigate('command')} />
   return <div className="app-shell">
-    <div className={`sidebar-wrap ${sidebarOpen ? 'open' : ''}`}><Sidebar activePage={page} onNavigate={navigate} alertCount={openAlerts.length} /></div>
+    {sidebarOpen && <div className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} aria-hidden="true" />}
+    <div className={`sidebar-wrap ${sidebarOpen ? 'open' : ''}`}><Sidebar activePage={page} onNavigate={navigate} alertCount={openAlerts.length} onClose={() => setSidebarOpen(false)} /></div>
     <main className="main-shell"><Topbar title={title} subtitle={subtitle} onMenu={() => setSidebarOpen((open) => !open)} onTour={() => setTourOpen(true)} onBell={() => setBellOpen((open) => !open)} escalationCount={escalationCount} />{pulse && <div className="realtime-indicator"><Wifi size={13} />Mesh live · {pulse.active_findings} active signals</div>}
       {loading ? <div className="app-loading"><div className="loading-orbit"><LoaderCircle className="spin" size={31} /></div><h2>Warming the operational twin</h2><p>Loading specialist-agent context and synthetic logistics signals…</p></div> : error ? <div className="connection-error"><AlertTriangle size={25} /><h2>Operations API unavailable</h2><p>{error}</p><button className="primary-button" onClick={loadCore}><RefreshCw size={16} />Try again</button></div> : content}
     </main>

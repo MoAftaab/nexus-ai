@@ -1,4 +1,4 @@
-import { Activity, BookOpen, Bot, Cpu, FileSearch, GitFork, HandCoins, LayoutDashboard, Radar, Scale, ShieldCheck } from 'lucide-react'
+import { Activity, BookOpen, Bot, Cpu, FileSearch, GitFork, HandCoins, LayoutDashboard, Radar, Scale, ShieldCheck, X } from 'lucide-react'
 
 const navigation = [
   { id: 'command', label: 'Command center', icon: LayoutDashboard },
@@ -13,8 +13,9 @@ const navigation = [
   { id: 'terms', label: 'Key terms', icon: BookOpen },
 ]
 
-export function Sidebar({ activePage, onNavigate, alertCount = 0 }) {
+export function Sidebar({ activePage, onNavigate, alertCount = 0, onClose }) {
   return <aside className="sidebar">
+    <button className="sidebar-close" onClick={onClose} aria-label="Close navigation"><X size={19} /></button>
     <button className="brand" onClick={() => onNavigate('home')} aria-label="Go to landing page">
       <span className="brand-mark"><span /><span /><span /></span>
       <span><strong>Nexus</strong><em>AI</em></span>
