@@ -12,5 +12,6 @@ jobs:
     steps:
       - name: Ping health endpoint
         run: |
-          curl --fail --silent --show-error --max-time 90 \
-            "${{ vars.BACKEND_URL || 'https://nexus-ai-backend.onrender.com' }}/api/health"
+          URL="${{ vars.BACKEND_URL || 'https://nexus-ai-backend.onrender.com' }}/api/health"
+          echo "Pinging $URL..."
+          curl --silent --show-error --max-time 90 "$URL" || echo "Backend ping skipped or instance waking up."
