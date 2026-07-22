@@ -137,13 +137,26 @@ async def scan() -> dict[str, object]:
     return result
 
 
+INCIDENT_ALIASES = {
+    "vda": "labels",
+    "replenishment": "replenish",
+    "po": "replenish",
+    "jis": "weight",
+    "hazmat": "weight",
+    "leadtime": "inventory",
+    "workforce": "overload",
+    "sla": "overload",
+    "klt": "ppap",
+}
+
+
 @app.post("/api/demo/inject")
 async def demo_inject(incident_type: str | None = Query(default=None, alias="type")) -> dict[str, object]:
-    if incident_type and incident_type != "random" and incident_type not in OperationsStore.INJECTABLE_INCIDENTS:
-        raise HTTPException(status_code=422, detail=f"Unknown incident type; use one of {', '.join(OperationsStore.INJECTABLE_INCIDENTS)} or random")
-    # to_thread: the first inventory injection rebuilds the classifier (~seconds);
-    # keeping it off the event loop keeps /api/health and the WS pulse alive.
-    result = await asyncio.to_thread(store.inject_incident, incident_type)
+    target_type = INCIDENT_ALIASES.get(incident_type.lower(), incident_type) if incident_type else None
+    if target_type and target_type != "random" and target_type not in OperationsStore.INJECTABLE_INCIDENTS:
+        valid_types = list(OperationsStore.INJECTABLE_INCIDENTS) + list(INCIDENT_ALIASES.keys())
+        raise HTTPException(status_code=422, detail=f"Unknown incident type; use one of {', '.join(valid_types)} or random")
+    result = await asyncio.to_thread(store.inject_incident, target_type)
     if result.get("injected"):
         await event_bus.publish("scan_complete", {"scan_id": result["scan_id"], "findings": len(result["new_findings"])})
     return result
