@@ -1,11 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Background, Controls, Handle, MarkerType, MiniMap, Position, ReactFlow, useEdgesState, useNodesState } from '@xyflow/react'
 import { AlertTriangle, ChevronRight, CircleDot, Euro, Timer, Zap } from 'lucide-react'
 import { currency } from '../utils'
 
 function LogisticsNode({ data, selected }) {
-  const { node } = data
-  return <div className={`flow-node ${node.health} ${selected ? 'selected' : ''}`}>
+  const { node, wave, waveGen } = data
+  // Keyed by wave generation: remounting the inner div restarts the shockwave
+  // CSS animation each time the cascade data changes.
+  return <div key={waveGen} className={`flow-node ${node.health} ${selected ? 'selected' : ''} ${wave != null ? 'shockwave' : ''}`} style={wave != null ? { '--wave-delay': `${wave * 340}ms` } : undefined}>
     <Handle type="target" position={Position.Left} />
     <div className="flow-node-top"><span className="node-health"><i />{node.kind}</span>{node.impact > 0 && <span className="node-impact">{currency(node.impact)}</span>}</div>
     <strong>{node.label}</strong>
@@ -28,10 +30,10 @@ const nodePosition = (node, index) => {
   return { x: 40 + (index % 3) * 320, y: 100 + Math.floor(index / 3) * 170 }
 }
 
-const toFlowNodes = (graph, activeId) => (graph?.nodes || []).map((node, index) => ({
+const toFlowNodes = (graph, activeId, waves, waveGen = 0) => (graph?.nodes || []).map((node, index) => ({
   id: node.id, type: 'logistics',
   position: nodePosition(node, index),
-  data: { node }, selected: activeId === node.id,
+  data: { node, wave: waves ? waves.get(node.id) ?? 0 : null, waveGen }, selected: activeId === node.id,
 }))
 const toFlowEdges = (graph) => (graph?.edges || []).map((edge, index) => ({
   id: `${edge.source}-${edge.target}-${index}`, source: edge.source, target: edge.target, label: `${edge.probability}%`,
@@ -40,18 +42,41 @@ const toFlowEdges = (graph) => (graph?.edges || []).map((edge, index) => ({
   labelStyle: { fill: '#e6d6b0', fontSize: 10, fontWeight: 700 }, labelBgStyle: { fill: '#221f31', fillOpacity: 0.88 },
 }))
 
+// BFS depth from the cascade source so the shockwave ripples through nodes in
+// dependency order rather than all at once.
+const waveDepths = (graph) => {
+  const nodes = graph?.nodes || []; const edges = graph?.edges || []
+  if (!nodes.length) return null
+  const targets = new Set(edges.map((edge) => edge.target))
+  const roots = nodes.filter((node) => !targets.has(node.id)).map((node) => node.id)
+  const depths = new Map((roots.length ? roots : [nodes[0].id]).map((id) => [id, 0]))
+  const queue = [...depths.keys()]
+  while (queue.length) {
+    const id = queue.shift()
+    for (const edge of edges) {
+      if (edge.source === id && !depths.has(edge.target)) { depths.set(edge.target, depths.get(id) + 1); queue.push(edge.target) }
+    }
+  }
+  return depths
+}
+
 export function CascadeGraph({ graph, selectedId, onSelect, compact = false }) {
   const [activeId, setActiveId] = useState(selectedId)
+  // Wave generation counter: bumped on every cascade change so nodes remount
+  // and replay the shockwave animation staggered by BFS depth.
+  const waveGen = useRef(0)
   // Nodes live in ReactFlow state so drag changes actually apply; re-seed them
   // only when the underlying cascade (not the selection) changes.
-  const [nodes, setNodes, onNodesChange] = useNodesState(toFlowNodes(graph, selectedId))
+  const [nodes, setNodes, onNodesChange] = useNodesState(toFlowNodes(graph, selectedId, waveDepths(graph)))
   const [edges, setEdges, onEdgesChange] = useEdgesState(toFlowEdges(graph))
   useEffect(() => {
+    waveGen.current += 1
+    const nextWaves = waveDepths(graph)
     // Re-seed on graph change, but keep positions the user dragged: live events
     // refetch the graph frequently and must not snap the layout back.
     setNodes((current) => {
       const kept = new Map(current.map((node) => [node.id, node.position]))
-      return toFlowNodes(graph, activeId).map((node) => kept.has(node.id) ? { ...node, position: kept.get(node.id) } : node)
+      return toFlowNodes(graph, activeId, nextWaves, waveGen.current).map((node) => kept.has(node.id) ? { ...node, position: kept.get(node.id) } : node)
     })
     setEdges(toFlowEdges(graph))
   }, [graph]) // eslint-disable-line react-hooks/exhaustive-deps

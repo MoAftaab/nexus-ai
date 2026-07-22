@@ -313,3 +313,50 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 
 /* Armed reset confirmation */
 .reset-armed { border-color: rgba(224,128,143,.45) !important; color: #f4b8c2 !important; background: rgba(224,128,143,.12) !important; }
+
+/* Agent mesh "thinking" animation inside the chat */
+.agent-thinking { display: grid; gap: 2px; min-width: 250px; padding: 11px 13px 12px; border: 1px solid rgba(243, 227, 183,.13); border-radius: 3px 11px 11px 11px; background: rgba(136, 114, 55,.14); animation: fade-in .25s ease both; }
+.thinking-title { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; color: #eed593; font-size: 8px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
+.thinking-row { display: grid; grid-template-columns: 16px minmax(0,1fr) auto; align-items: center; gap: 8px; padding: 4px 0; transition: opacity .3s; }
+.thinking-row.pending { opacity: .32; }
+.thinking-row.done { opacity: .72; }
+.thinking-row strong { display: block; color: #f5f3ed; font-size: 9px; }
+.thinking-row small { display: block; margin-top: 1px; overflow: hidden; color: #9c96b6; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.thinking-orb { display: grid; place-items: center; width: 15px; height: 15px; border-radius: 50%; color: #1c1734; background: rgba(238, 213, 147,.14); }
+.thinking-row.done .thinking-orb { background: #8fd0b5; }
+.thinking-row.active .thinking-orb i { width: 6px; height: 6px; border-radius: 50%; background: #eed593; box-shadow: 0 0 9px #eed593; animation: pulse 1.2s infinite; }
+.thinking-row.pending .thinking-orb i { width: 5px; height: 5px; border-radius: 50%; background: #6f698e; }
+.thinking-dots { display: inline-flex; gap: 3px; }
+.thinking-dots span { width: 3px; height: 3px; border-radius: 50%; background: #eed593; animation: thinking-dot 1s infinite; }
+.thinking-dots span:nth-child(2) { animation-delay: .18s; }
+.thinking-dots span:nth-child(3) { animation-delay: .36s; }
+@keyframes thinking-dot { 0%, 60%, 100% { opacity: .25; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-2px); } }
+
+/* Overheard agent chatter under the thinking steps */
+.thinking-chatter { display: flex; align-items: baseline; gap: 5px; flex-wrap: wrap; margin-top: 9px; padding: 7px 9px; border-left: 2px solid rgba(238, 213, 147,.4); border-radius: 0 7px 7px 0; background: rgba(238, 213, 147,.05); font-size: 8px; animation: fade-in .4s ease both; }
+.thinking-chatter b { color: #eed593; font-family: 'DM Mono', monospace; }
+.thinking-chatter span { color: #a59fbd; font-style: italic; }
+
+/* Roster orbs animate in sequence while a chat is in flight */
+.roster-agent.thinking .agent-orb i { animation: mesh-think 1.56s var(--mesh-delay, 0ms) infinite; }
+.roster-agent.thinking > span:last-child { color: #eed593; font: 8px 'DM Mono', monospace; animation: fade-in .3s ease both; }
+@keyframes mesh-think { 0%, 100% { transform: scale(1); opacity: .55; } 50% { transform: scale(1.8); opacity: 1; } }
+
+/* Anomaly citation chips inside chat markdown */
+.citation-chip { display: inline-block; margin: 0 1px; padding: 1px 6px; border: 1px solid rgba(238, 213, 147,.35); border-radius: 6px; color: #f2e3b2; background: rgba(238, 213, 147,.1); font: 700 8.5px 'DM Mono', monospace; letter-spacing: .02em; cursor: pointer; animation: cite-glow 1.6s ease 1; transition: background .15s, border-color .15s; }
+.citation-chip:hover { border-color: rgba(238, 213, 147,.7); background: rgba(238, 213, 147,.2); }
+@keyframes cite-glow { 0% { box-shadow: 0 0 0 0 rgba(238, 213, 147,.55); } 100% { box-shadow: 0 0 0 8px rgba(238, 213, 147,0); } }
+
+/* Cascade shockwave: nodes flash in dependency order when the cascade changes */
+.flow-node.shockwave::before { content: ''; position: absolute; inset: -2px; border-radius: 10px; border: 2px solid rgba(238, 213, 147,.9); opacity: 0; pointer-events: none; animation: shockwave-ring 1s var(--wave-delay, 0ms) ease-out; }
+.flow-node.shockwave { animation: shockwave-node .9s var(--wave-delay, 0ms) ease-out; }
+@keyframes shockwave-node { 0% { transform: scale(1); } 22% { transform: scale(1.06); box-shadow: 0 0 26px rgba(238, 213, 147,.5); } 100% { transform: scale(1); } }
+@keyframes shockwave-ring { 0% { opacity: .9; transform: scale(1); } 100% { opacity: 0; transform: scale(1.35); } }
+
+/* Radar sweep across the metrics grid during a scan */
+.metrics-grid { position: relative; }
+.metrics-grid.scanning { overflow: hidden; border-radius: 14px; }
+.radar-sweep { position: absolute; z-index: 3; inset: -8px auto -8px 0; width: 130px; pointer-events: none; background: linear-gradient(100deg, transparent, rgba(238, 213, 147,.14) 45%, rgba(238, 213, 147,.5) 50%, rgba(238, 213, 147,.14) 55%, transparent); filter: blur(1px); animation: radar-pass 1.9s linear infinite; }
+@keyframes radar-pass { from { transform: translateX(-140px); } to { transform: translateX(calc(100vw)); } }
+.metric-card.discovering { animation: discover .95s var(--discover-delay, 0ms) ease both infinite alternate; }
+@keyframes discover { from { border-color: rgba(244, 230, 190,.1); } to { border-color: rgba(238, 213, 147,.55); box-shadow: 0 0 22px rgba(238, 213, 147,.12), inset 0 1px rgba(255,255,255,.06); } }

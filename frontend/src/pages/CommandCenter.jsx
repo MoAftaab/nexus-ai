@@ -17,7 +17,7 @@ export function CommandCenter({ dashboard, anomalies, graph, onNavigate, onSelec
       <div className="hero-copy"><span className="live-chip"><Radio size={13} />Live operational twin</span><h2>Keep every part of the line <em>in flow.</em></h2><p>Nexus maps small data defects to their downstream production impact before the shift feels them.</p></div>
       <div className="hero-actions"><span className="scan-state"><span className="pulse-dot" />Last scan {dashboard?.last_scan ? timeAgo(dashboard.last_scan) : 'now'}</span><button className="primary-button" onClick={onScan} disabled={scanning}><ScanLine size={16} />{scanning ? 'Scanning mesh…' : 'Run intelligence scan'}</button></div>
     </section>
-    <section className="metrics-grid">{dashboard?.metrics?.map((metric, index) => <MetricCard metric={metric} index={index} key={metric.label} />)}</section>
+    <section className={`metrics-grid ${scanning ? 'scanning' : ''}`}>{dashboard?.metrics?.map((metric, index) => <MetricCard metric={metric} index={index} scanning={scanning} key={metric.label} />)}{scanning && <span className="radar-sweep" aria-hidden="true" />}</section>
     <section className="command-grid">
       <article className="map-card card-surface"><div className="section-title"><div><span className="eyebrow"><Sparkles size={14} /> Cascade intelligence</span><h2>What breaks next</h2></div><button className="text-button" onClick={() => onNavigate('cascade')}>Expand map <ArrowUpRight size={15} /></button></div>
         <div className="map-stage"><CascadeGraph graph={graph} compact onSelect={(node) => onSelectAnomaly({ id: node.anomaly_id || primary?.id })} /><CascadeSummary anomaly={primary} onExplore={() => onNavigate('cascade')} /></div><CascadeLegend />

@@ -113,7 +113,7 @@ export default function App() {
     if (page === 'cascade') return <CascadeMap {...props} onLoadGraph={loadGraph} />
     if (page === 'intelligence') return <RiskIntelligence anomalies={anomalies} onSelectAnomaly={selectAnomaly} />
     if (page === 'reconcile') return <Reconciliation data={reconciliation} onSelectAnomaly={selectAnomaly} />
-    if (page === 'agents') return <AgentWorkspace agents={agentData?.agents} communication={agentData?.communication} onChatStream={api.chatStream} />
+    if (page === 'agents') return <AgentWorkspace agents={agentData?.agents} communication={agentData?.communication} onChatStream={api.chatStream} onSelectAnomaly={selectAnomaly} />
     if (page === 'documents') return <Documents onInspect={inspectDocument} documentData={documentData} />
     if (page === 'alerts') return <AlertsTimeline alerts={alerts} onSelectAnomaly={selectAnomaly} />
     if (page === 'outcomes') return <Outcomes outcomes={outcomeData} onSelectAnomaly={selectAnomaly} />
