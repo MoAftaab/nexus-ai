@@ -39,7 +39,10 @@ One wrong number can stop an assembly line. NexusAI watches a 72,900-record ware
 
 ---
 
-## 📸 Screenshots
+## 📸 Screenshots & Workflow Diagrams
+
+### Change Request Approval Workflow
+![Change Request Approval Workflow](docs/assets/change_approval_workflow.png)
 
 ### Landing Page
 ![Landing Page](docs/assets/landing.png)
@@ -57,6 +60,136 @@ One wrong number can stop an assembly line. NexusAI watches a 72,900-record ware
 ![Outcomes](docs/assets/outcomes.png)
 
 <br />
+
+---
+
+## 🌟 Complete Feature Matrix & Use Cases (Existing + New)
+
+Here is a comprehensive breakdown of all **Core System Features** and **Newly Added Governance & Control Features**, explained in simple terms with real-world automotive supply chain use cases:
+
+---
+
+### 🏛️ Part 1: Core AI & Operational Features (Existing Capabilities)
+
+#### 1. 🔍 Autopilot Drift Detection (20+ ML & Rule-Based Detectors)
+* **What it is:** Continuously scans 72,900 operational records across ERP (SAP), WMS, TMS, and workforce logs to detect hidden data mismatches, weight variances, and shipment delays.
+* **All Possible Use Cases:**
+  * **Stock Discrepancy:** WMS records 540 steering knuckles in Bin `JIS-07`, but SAP ERP master records 490.
+  * **Carrier Return Overdue:** Container `CONT-8841` marked as shipped in TMS, but carrier return scan is 14 days overdue, threatening €12,000 in demurrage fees.
+  * **Supplier Lead-Time Drift:** Supplier *RheinMotion Systems* experiences a +6 day lead-time variance on brake line manifolds, threatening assembly line starvation.
+  * **Weight Mismatch:** Shipping weight recorded at 1,200 kg in TMS while WMS component weights total 1,450 kg, flagging missing or swapped items.
+  * **Cycle Count Variance:** Physical cycle count at Wolfsburg DC reveals 50 missing ECU control modules.
+
+---
+
+#### 2. 🌐 Downstream Cascade Tracing (Live Graph Dependency Mapping)
+* **What it is:** Automatically maps how a single missing component or record error propagates through sub-assemblies, production lines, and final vehicle dispatches.
+* **All Possible Use Cases:**
+  * **Assembly Line Halt:** A missing batch of 12 clutch actuators at Wolfsburg DC delays Sub-Assembly Line 3, which halts the main Golf assembly line within 48 hours.
+  * **Cross-Site Supply Interruption:** A delay in Pune container returns cascades into Bratislava engine assembly line delays.
+  * **Just-In-Sequence (JIS) Bottleneck:** Missing camera harnesses at JIS-07 bin stall the door panel assembly sequence.
+
+---
+
+#### 3. 🎲 Monte-Carlo Financial Exposure Scoring (€ Risk Modeling)
+* **What it is:** Runs 1,000-trial Monte-Carlo simulations to calculate financial loss in real Euros, projecting expected damage, P90 tail risk, and counterfactual ROI of fixing issues.
+* **All Possible Use Cases:**
+  * **Downtime Cost Projection:** Calculates that an unresolved ECU shortage carries a P90 financial exposure of €285,000 due to factory idle penalties.
+  * **Expedited Logistics ROI:** Demonstrates that spending €3,500 on expedited air freight prevents €140,000 in delayed delivery penalties.
+  * **Supplier Penalty Calculation:** Computes financial indemnity claims against suppliers causing recurring lead-time delays.
+
+---
+
+#### 4. 🤖 Multi-Agent Specialist Reasoning Mesh (5 Parallel GPT-5.4-mini Agents)
+* **What it is:** A multi-agent AI system where 5 specialized agents (Sentinel, Correlator, Economist, Resolver, Auditor) analyze questions simultaneously to give evidence-backed answers.
+* **All Possible Use Cases:**
+  * **Root Cause Investigation:** Asking *"Why is Wolfsburg experiencing a 15% drop in JIS-07 picking efficiency?"* triggers parallel analysis of workforce logs, bin locations, and component weights.
+  * **Interactive Handoff Tracing:** Agents pass context seamlessly (Sentinel detects drift → Correlator links to order → Economist calculates € loss → Resolver drafts fix).
+
+---
+
+#### 5. 📄 Document Parsing & Cross-System Verification (PDF, Excel, Images)
+* **What it is:** OCR & document parser that ingests bills of lading, delivery notes, spreadsheets, and barcode images, cross-checking document text against database records.
+* **All Possible Use Cases:**
+  * **Damaged VDA Barcode Scan:** Scans a damaged VDA 4902 barcode label image, cross-checks it against SAP master SKU data, and generates a verified reprint request.
+  * **Delivery Note vs PO Check:** Extracts quantities from a supplier delivery note PDF and flags a 200-unit discrepancy against the SAP Purchase Order.
+  * **Safety Data Sheet (SDS) Verification:** Verifies signed SDS declaration PDFs for hazardous materials before allowing warehouse entry.
+
+---
+
+#### 6. 📊 Auditable Value Ledger & Counterfactual Accounting
+* **What it is:** An automated financial ledger recording every Euro saved by resolving data errors and line disruptions.
+* **All Possible Use Cases:**
+  * **Executive Value Reporting:** Executive dashboard displaying total protected enterprise value (€1.42M saved across 45 resolved incidents this month).
+  * **Audit Verification:** Proves to financial auditors exact cost savings backed by mathematical counterfactual modeling.
+
+---
+
+### 🛡️ Part 2: Enterprise Governance & Control Features (Newly Added)
+
+#### 7. 🛡️ Role-Based Change Control & Multi-Tier Approval Workflow
+* **What it is:** A formal Change Request draft creation and automated approval system. Database records cannot be edited silently; changes require multi-stage sign-offs based on risk and site.
+* **Why it matters:** Prevents unauthorized or unreviewed data edits from breaking factory operations. Requesters cannot approve their own requests.
+* **Approval Hierarchy & Role Responsibilities:**
+  | Role | Hierarchy Level | Responsibility | Approval Authority |
+  | :--- | :---: | :--- | :--- |
+  | **Operations Operator** | Level 1 | Identifies issues & creates change drafts | **Cannot approve** (Draft Creator) |
+  | **Operations Lead** | Level 2 | Reviews local site operational risks | Approves **Low-Risk** requests (< €25,000) |
+  | **Operations Manager** | Level 3 | Reviews business impact & site capacity | Approves **Medium-Risk** (€25k–€99.9k) & 1st approval for High/Critical |
+  | **Quality & Compliance Officer** | Level 3 (Special) | Checks regulatory, quality & safety compliance | Mandatory sign-off for **Quality-Controlled** requests |
+  | **Supply Chain Director** | Level 4 (Executive) | Final business & enterprise approval | Final approval for **High-Risk** (≥ €100k) & **Critical** (≥ €250k) |
+  | **Auditor** | Read-Only | Reviews historical logs & snapshot evidence | Read-only; cannot approve or execute changes |
+  | **System Administrator** | Admin | Manages users, permissions & approval policies | System config only (not an operational approver) |
+
+* **Approval Tiers:**
+  * **Low Risk (< €25,000):** `Operator` → `Operations Lead`
+  * **Medium Risk (€25,000 – €99,999):** `Operator` → `Operations Manager`
+  * **High Risk (≥ €100,000):** `Operator` → `Operations Manager` → `Supply Chain Director`
+  * **Critical Risk (≥ €250,000):** `Operator` → `Operations Manager` → `Supply Chain Director`
+  * **Quality-Controlled Requests (PPAP / Hazmat / VDA / SDS):** `Operator` → `Operations Manager` → `Quality & Compliance Officer` → `Supply Chain Director`
+
+* **All Possible Use Cases:**
+  * **High-Cost Stock Adjustment:** Operator detects a €120,000 inventory correction. Submits draft → Wolfsburg Operations Manager reviews → Supply Chain Director approves → System executes.
+  * **Quality Release Sign-off:** Releasing a missing PPAP certificate or Hazmat declaration automatically mandates a Quality & Compliance Officer sign-off.
+  * **Supplier Master Record Correction:** Updating lead-time parameters for a key supplier requires Manager approval to prevent auto-reordering errors.
+
+---
+
+#### 8. 🔐 Role-Based Access Control (RBAC) & Multi-Site Authentication
+* **What it is:** Multi-role user login supporting distinct operational roles across manufacturing sites (Wolfsburg, Bratislava, Pune).
+* **All Possible Use Cases:**
+  * **Site Data Isolation:** Operations Manager in Bratislava sees only Bratislava approval requests, while Global Supply Chain Director accesses all sites.
+  * **Permission Enforcement:** Operators can create drafts but cannot approve; Auditors have read-only inspection access.
+
+---
+
+#### 9. 📜 Audit Archive & Snapshot Time-Travel Diffing (1-Click Rollback)
+* **What it is:** An immutable, searchable historical ledger of every data correction ever requested, approved, or executed, featuring side-by-side snapshot comparison and 1-click rollback.
+* **All Possible Use Cases:**
+  * **Compliance Audit:** Auditor reviews an edit made 30 days ago, views exact side-by-side CSV diffs of rows before and after execution, and verifies who approved it.
+  * **Emergency Rollback:** If an approved stock adjustment proves incorrect, an Auditor triggers a 1-click rollback to restore original database records.
+
+---
+
+#### 10. 🔔 Real-Time Notification Center
+* **What it is:** An in-app notification panel that alerts managers and operators about incoming approval requests, status updates, and critical system events.
+* **All Possible Use Cases:**
+  * **Executive Approval Alert:** Supply Chain Director receives a real-time notification pill when a critical €350,000 Change Request enters their approval queue.
+  * **Operator Execution Notification:** Operator receives instant feedback when their submitted draft is approved and executed by system services.
+
+---
+
+#### 11. 🎛️ Access Policy Console & Workflow Visibility
+* **What it is:** A transparent management console displaying active site policies, risk matrix rules, and approval hierarchies.
+* **All Possible Use Cases:**
+  * **Governance Verification:** Administrators inspect policy matrices to verify that all Hazmat & PPAP requests require Quality Officer approval across all sites.
+
+---
+
+#### 12. 🏭 SAP MARD (MatStorLoc) Deterministic Integration
+* **What it is:** Real SAP automotive storage location dataset integration (818 records across 57 materials and 46 storage locations).
+* **All Possible Use Cases:**
+  * **SAP Master Data Sync:** Detects stock in transfer (`stockintransfer`) vs restricted batch stock (`totalstockofallrestrbatches`) directly mapped to SAP MARD table fields.
 
 ---
 
