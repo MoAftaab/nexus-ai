@@ -3,20 +3,192 @@ from __future__ import annotations
 from collections import Counter
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
+import hashlib
 from threading import RLock
 import random
 import uuid
 
-from app.db import ContainerModel, DispatchScheduleModel, InboundOrderModel, InventoryPositionModel, MasterSkuModel, OutboundOrderModel, Repository, SupplierModel, WorkforceLogModel
+from app.db import ApprovalStepModel, ChangeRequestModel, ContainerModel, DispatchScheduleModel, InboundOrderModel, InventoryPositionModel, MasterSkuModel, OutboundOrderModel, Repository, SupplierModel, WorkforceLogModel
 from app.config import Settings
-from app.models import Anomaly, DocumentInspection
+from app.models import Anomaly, CascadeEdge, CascadeNode, DocumentInspection, Evidence, FixAction
 from app.services.cascade_engine import CascadeEngine
+from app.services.auth import seed_users_and_sites
 from app.services.dataset_export import DATASETS_DIR, export_dataset
 from app.services.ml_detection import ModelSelection, score_records, select_best_inventory_model, train_selected_classifier
 from app.services.knowledge_base import KNOWLEDGE_DIR, list_ingested_documents, prepare_operational_markdown, retrieve_markdown
 from app.services.seed import SyntheticDataset, build_reconciliation_rows, detect_anomalies, generate_dataset
 
-DATASET_SCHEMA_VERSION = "2026.07.20.5"
+DATASET_SCHEMA_VERSION = "2026.08.12.1"
+
+
+def _sap_rows(data) -> list[dict]:
+    return list(getattr(data, "inventory", data or []))
+
+
+def _sap_id(prefix: str, value: str) -> str:
+    return f"SAP-{prefix}-{hashlib.sha1(value.encode('utf-8')).hexdigest()[:10].upper()}"
+
+
+def _sap_action(anomaly_id: str, title: str, owner: str, description: str, saved: int) -> FixAction:
+    return FixAction(
+        id=f"FX-{anomaly_id[-8:]}-{owner[:2].upper()}", title=title, owner=owner,
+        eta="1 shift", confidence=90, description=description, impact_saved=saved,
+    )
+
+
+def _sap_anomaly(
+    *, prefix: str, title: str, kind: str, severity: str, impact: int, rows: list[dict],
+    summary: str, root_cause: str, evidence: list[Evidence], nodes: list[tuple[str, str, str, str, str]],
+    action_title: str, action_description: str,
+) -> Anomaly:
+    now = datetime.now(timezone.utc)
+    anomaly_id = _sap_id(prefix, "|".join(str(row.get("sap_source_id") or row.get("id") or index) for index, row in enumerate(rows)))
+    cascade_nodes = [CascadeNode(id=f"{anomaly_id}-{index}", label=label, kind=node_kind, health=health, detail=detail) for index, (label, node_kind, health, detail, _unused) in enumerate(nodes)]
+    cascade_edges = [CascadeEdge(source=cascade_nodes[index].id, target=cascade_nodes[index + 1].id, label="propagates", probability=max(55, 92 - index * 9)) for index in range(len(cascade_nodes) - 1)]
+    sku = str(rows[0].get("material") or rows[0].get("sku") or "SAP-MARD") if rows else "SAP-MARD"
+    zone = str(rows[0].get("storagelocation") or "Kassel") if rows else "Kassel"
+    return Anomaly(
+        id=anomaly_id, title=title, type=kind, severity=severity, system="SAP ERP", zone=zone,
+        sku=sku, detected_at=now, time_to_impact="Next period close", impact=int(impact), confidence=94,
+        summary=summary, root_cause=root_cause, evidence=evidence,
+        actions=[_sap_action(anomaly_id, action_title, "SAP Operations", action_description, int(impact * .85))],
+        cascade_nodes=cascade_nodes, cascade_edges=cascade_edges,
+    )
+
+
+def _as_float(value) -> float:
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def detect_fiscal_year_desync(data) -> list[Anomaly]:
+    rows = _sap_rows(data)
+    findings: list[Anomaly] = []
+    severity_by_year = {2022: "critical", 2023: "high", 2024: "medium", 2025: "low"}
+    for year in sorted(severity_by_year):
+        group = [row for row in rows if str(row.get("fiscalyearofcurrentperiod") or "").strip() == str(year)]
+        if not group:
+            continue
+        locations = sorted({str(row.get("storagelocation") or "unknown") for row in group})
+        impact = min(85_000, 15_000 + len(locations) * 1_500)
+        findings.append(_sap_anomaly(
+            prefix=f"FY{year}", title=f"SAP fiscal year desynchronization — FY{year}", kind="SAP fiscal year desync",
+            severity=severity_by_year[year], impact=impact, rows=group,
+            summary=f"{len(group)} SAP storage records remain in fiscal year {year} across {len(locations)} locations.",
+            root_cause="Material stock-period records were not advanced with the active fiscal year.",
+            evidence=[Evidence(label="fiscalyearofcurrentperiod", value=str(year), source="SAP MARD"), Evidence(label="Storage locations", value=", ".join(locations), source="SAP MARD")],
+            nodes=[("ERP Period Mismatch", "source", "critical", "SAP MARD is in a prior fiscal year", ""), ("Period-Close Failure", "process", "risk", "Period close may reject stale stock periods", ""), ("Goods Movement Block", "outcome", "critical", "Goods movements can be blocked", "")],
+            action_title="Advance SAP stock periods and validate period close", action_description="Synchronize fiscal year and current period for affected material/storage-location records, then re-run period-close validation.",
+        ))
+    return findings
+
+
+def _count_date(value) -> datetime | None:
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    text = str(value or "").strip()
+    if not text or text == "00000000":
+        return None
+    try:
+        return datetime.strptime(text, "%Y%m%d").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def detect_unreconciled_inventory(data) -> list[Anomaly]:
+    rows = _sap_rows(data)
+    now = datetime.now(timezone.utc)
+    unposted: list[dict] = []
+    for row in rows:
+        posted = _count_date(row.get("dateoflastpostedcount") or row.get("last_count"))
+        if posted is None or (now - posted).days > 365:
+            unposted.append(row)
+    if not unposted:
+        return []
+    locations = sorted({str(row.get("storagelocation") or "unknown") for row in unposted})
+    location_counts = Counter(str(row.get("storagelocation") or "unknown") for row in rows)
+    critical = any(sum(1 for row in unposted if str(row.get("storagelocation") or "unknown") == location) / max(1, count) > .95 for location, count in location_counts.items())
+    impact = min(120_000, 25_000 + len(unposted) * 100)
+    return [_sap_anomaly(
+        prefix="COUNT", title="Unreconciled physical inventory audit", kind="SAP physical inventory audit",
+        severity="critical" if critical else "high", impact=impact, rows=unposted,
+        summary=f"{len(unposted)} records have no valid physical count or have not been counted for over 365 days.",
+        root_cause="Physical inventory posting evidence is missing from the SAP stock ledger.",
+        evidence=[Evidence(label="dateoflastpostedcount", value=", ".join(sorted({str(row.get('dateoflastpostedcount') or '00000000') for row in unposted})), source="SAP MARD"), Evidence(label="Storage location", value=", ".join(locations), source="SAP MARD")],
+        nodes=[("Ghost Inventory Risk", "source", "critical", "Book stock lacks recent count evidence", ""), ("Stock Availability Signal Error", "process", "risk", "Available stock cannot be trusted", ""), ("Dispatch Shortfall", "outcome", "critical", "Planning may release unavailable stock", "")],
+        action_title="Create and post a physical inventory count", action_description="Block unreliable availability signals, perform a cycle count, and post the reconciled quantity to SAP.",
+    )]
+
+
+def detect_blocked_restricted_stock(data) -> list[Anomaly]:
+    rows = _sap_rows(data)
+    blocked = [row for row in rows if (_as_float(row.get("blockedstock")) > 0 or _as_float(row.get("stockinqualityinspection")) > 0) and _as_float(row.get("freeavailablestock")) <= 0]
+    if not blocked:
+        return []
+    blocked_qty = sum(max(0, _as_float(row.get("blockedstock"))) + max(0, _as_float(row.get("stockinqualityinspection"))) for row in blocked)
+    impact = min(95_000, 18_000 + int(blocked_qty * 2_000))
+    return [_sap_anomaly(
+        prefix="BLOCKED", title="Blocked and restricted stock unavailable", kind="SAP blocked stock", severity="high", impact=impact, rows=blocked,
+        summary=f"{len(blocked)} locations hold {blocked_qty:g} units in blocked or quality-inspection stock with no free availability.",
+        root_cause="Stock remains trapped in SAP quality or blocked status without an available release path.",
+        evidence=[Evidence(label="Blocked quantity", value=f"{blocked_qty:g} units (blockedstock + stockinqualityinspection)", source="SAP MARD"), Evidence(label="Exact blocked quantities", value=", ".join(f"{str(row.get('storagelocation') or 'unknown')}: blocked={max(0, _as_float(row.get('blockedstock'))):g}, quality={max(0, _as_float(row.get('stockinqualityinspection'))):g}" for row in blocked), source="SAP MARD"), Evidence(label="Storage locations", value=", ".join(sorted({str(row.get('storagelocation') or 'unknown') for row in blocked})), source="SAP MARD")],
+        nodes=[("Trapped Capital", "source", "critical", "Restricted stock cannot be allocated", ""), ("Unfulfillable Allocation", "process", "risk", "Planning sees no free stock", ""), ("Dispatch Delay", "outcome", "critical", "Orders may miss their dispatch window", "")],
+        action_title="Release or disposition restricted stock", action_description="Review quality and blocked quantities, post the approved disposition, and restore only verified free availability.",
+    )]
+
+
+def detect_deletion_maintenance_flags(data) -> list[Anomaly]:
+    rows = _sap_rows(data)
+    flagged = [row for row in rows if str(row.get("deletionflag") or "").strip().upper() == "X" or str(row.get("maintenancestatus") or "").strip().upper() == "D"]
+    if not flagged:
+        return []
+    active_deleted = any(str(row.get("deletionflag") or "").strip().upper() == "X" and _as_float(row.get("freeavailablestock")) > 0 for row in flagged)
+    impact = min(50_000, 10_000 + len(flagged) * 3_000)
+    return [_sap_anomaly(
+        prefix="DELETED", title="Deleted or incompletely maintained storage location", kind="SAP master data deletion", severity="critical" if active_deleted else "high", impact=impact, rows=flagged,
+        summary=f"{len(flagged)} SAP storage records are deleted or have incomplete maintenance status, including {', '.join(sorted({str(row.get('storagelocation') or 'unknown') for row in flagged}))}.",
+        root_cause="Master-data retirement flags are not aligned with stock and goods-movement controls.",
+        evidence=[Evidence(label="Deletion flag", value=", ".join(sorted({str(row.get('deletionflag') or '') for row in flagged})), source="SAP MARD"), Evidence(label="Maintenance status", value=", ".join(sorted({str(row.get('maintenancestatus') or '') for row in flagged})), source="SAP MARD"), Evidence(label="Storage locations", value=", ".join(sorted({str(row.get('storagelocation') or 'unknown') for row in flagged})), source="SAP MARD")],
+        nodes=[("Decommissioned Location Active", "source", "critical", "Retired storage locations remain in the operational model", ""), ("Posting Failure Risk", "process", "risk", "Future goods movements may fail", ""), ("Data Corruption", "outcome", "critical", "Master and stock records can diverge", "")],
+        action_title="Block future goods movements to deleted locations", action_description="Prevent new postings to deleted or incomplete locations, move active stock to a maintained location, and audit the master record.",
+    )]
+
+
+def detect_storage_location_fragmentation(data) -> list[Anomaly]:
+    rows = _sap_rows(data)
+    by_material: dict[str, dict[str, dict]] = {}
+    for row in rows:
+        material = str(row.get("material") or row.get("sku") or "").strip()
+        location = str(row.get("storagelocation") or "").strip()
+        if not material or not location or _as_float(row.get("freeavailablestock")) != 0:
+            continue
+        by_material.setdefault(material, {})[location] = row
+    findings: list[Anomaly] = []
+    for material, location_rows in sorted(by_material.items()):
+        if len(location_rows) <= 15:
+            continue
+        group = list(location_rows.values())
+        locations = sorted(location_rows)
+        impact = min(45_000, 12_000 + len(locations) * 1_000)
+        findings.append(_sap_anomaly(
+            prefix="FRAG", title=f"Storage location fragmentation — {material}", kind="SAP storage fragmentation", severity="medium", impact=impact, rows=group,
+            summary=f"Material {material} is spread across {len(locations)} zero-stock storage locations.",
+            root_cause="Stale zero-stock storage-location records are inflating MRP search and manual handling paths.",
+            evidence=[Evidence(label="Fragmented material", value=material, source="SAP MARD"), Evidence(label="Zero-stock locations", value=", ".join(locations), source="SAP MARD")],
+            nodes=[("MRP Bloat", "source", "risk", "One material has many stale locations", ""), ("Slow Query Performance", "process", "watch", "MRP must scan unnecessary locations", ""), ("Manual Picking Error Risk", "outcome", "risk", "Operators can be routed to stale bins", "")],
+            action_title="Consolidate zero-stock storage locations", action_description="Close stale zero-stock locations in SAP after validating open documents and master-data dependencies.",
+        ))
+    return findings
+
+
+def detect_sap_anomalies(data) -> list[Anomaly]:
+    """Run the SAP detector family as one additive scan stage."""
+    findings: list[Anomaly] = []
+    for detector in (detect_fiscal_year_desync, detect_unreconciled_inventory, detect_blocked_restricted_stock, detect_deletion_maintenance_flags, detect_storage_location_fragmentation):
+        findings.extend(detector(data))
+    return findings
 
 
 class OperationsStore:
@@ -31,6 +203,7 @@ class OperationsStore:
         self.settings = settings
         self.repository = Repository(settings)
         self.repository.initialize()
+        seed_users_and_sites(self.repository)
         loaded = self.repository.load_run()
         if loaded and loaded["run"].metadata_json.get("dataset_schema") != DATASET_SCHEMA_VERSION:
             # The normal initialization path below atomically replaces the old demo
@@ -45,7 +218,7 @@ class OperationsStore:
         else:
             self._dataset = generate_dataset(settings.demo_seed)
             self._ml_selection = select_best_inventory_model(self._dataset.inventory, self._dataset.seed)
-            self._anomalies = detect_anomalies(self._dataset, self._ml_selection.inventory_scores)
+            self._anomalies = detect_anomalies(self._dataset, self._ml_selection.inventory_scores) + detect_sap_anomalies(self._dataset)
             self._run_id = self.repository.save_run(self._dataset, self._anomalies, {"dataset_schema": DATASET_SCHEMA_VERSION, "ml_model": self._ml_metadata(include_scores=True)})
             # The value ledger describes the previous twin's findings; a fresh
             # board starts with a fresh ledger so dashboard and outcomes reconcile.
@@ -346,6 +519,31 @@ class OperationsStore:
                     sku["bin_active"] = True; updates[sku["id"]] = {"bin_active": True}
                     fixed.append(f"republished slotting rule for {sku['id']}")
             self.repository.update_source_records(self._run_id, MasterSkuModel, updates)
+        elif anomaly.type.startswith("SAP"):
+            updates = {}
+            targets = [row for row in data.inventory if row.get("material") == anomaly.sku or (anomaly.type != "SAP storage fragmentation" and row.get("sap_anchor"))]
+            for row in targets:
+                changed = {}
+                if anomaly.type == "SAP fiscal year desync":
+                    changed = {"fiscalyearofcurrentperiod": 2026, "currentperiod": "12"}
+                    row.update(changed)
+                elif anomaly.type == "SAP physical inventory audit":
+                    changed = {"dateoflastpostedcount": "20260720", "physicalinventoryblockingind": ""}
+                    row.update(changed)
+                elif anomaly.type == "SAP blocked stock":
+                    changed = {"blockedstock": 0, "stockinqualityinspection": 0, "freeavailablestock": max(1, _as_float(row.get("freeavailablestock")))}
+                    row.update(changed)
+                elif anomaly.type == "SAP master data deletion":
+                    changed = {"deletionflag": "", "maintenancestatus": "DL"}
+                    row.update(changed)
+                elif anomaly.type == "SAP storage fragmentation":
+                    changed = {"storagelocation": "CONSOLIDATED"}
+                    row.update(changed)
+                if changed:
+                    updates[row["id"]] = changed
+            self.repository.update_source_records(self._run_id, InventoryPositionModel, updates)
+            if updates:
+                fixed.append(f"updated {len(updates)} SAP inventory positions")
         return "; ".join(fixed[:3]) + (f" (+{len(fixed) - 3} more)" if len(fixed) > 3 else "")
 
     INJECTABLE_INCIDENTS = ("weight", "inventory", "overload", "ppap", "labels", "replenish")
@@ -359,8 +557,22 @@ class OperationsStore:
         """
         dataset = generate_dataset(self.settings.demo_seed)
         selection = select_best_inventory_model(dataset.inventory, dataset.seed)
-        anomalies = detect_anomalies(dataset, selection.inventory_scores)
+        anomalies = detect_anomalies(dataset, selection.inventory_scores) + detect_sap_anomalies(dataset)
         with self._lock:
+            # A reset replaces the source twin. Any request that has not reached
+            # a terminal historical state must be cancelled so its old snapshot
+            # cannot be approved or executed against the new dataset.
+            open_statuses = {"draft", "returned", "awaiting_lead", "awaiting_manager", "awaiting_quality_compliance", "awaiting_director", "approved", "applying", "awaiting_verification", "failed_verification"}
+            with self.repository.session() as session:
+                open_requests = session.query(ChangeRequestModel).filter(ChangeRequestModel.status.in_(open_statuses)).all()
+                request_ids = [row.request_id for row in open_requests]
+                reset_time = datetime.now(timezone.utc).isoformat()
+                for row in open_requests:
+                    row.status = "cancelled"
+                    row.payload = {**(row.payload or {}), "cancel_reason": "Demo data reset replaced the source twin", "cancelled_at": reset_time}
+                    row.updated_at = datetime.now(timezone.utc)
+                if request_ids:
+                    session.query(ApprovalStepModel).filter(ApprovalStepModel.request_id.in_(request_ids), ApprovalStepModel.status.in_({"waiting", "active"})).update({"status": "cancelled"}, synchronize_session=False)
             self._dataset = dataset
             self._ml_selection = selection
             self._anomalies = anomalies
@@ -369,7 +581,6 @@ class OperationsStore:
             # With a fixed seed the fresh board reuses deterministic anomaly IDs;
             # keeping old audit rows would bleed last session's approvals into
             # brand-new findings' incident reports.
-            self.repository.clear_audit()
             export_dataset(self._dataset)
             prepare_operational_markdown(self._dataset)
             self.cascade_engine = CascadeEngine(self._dataset.seed)
@@ -557,7 +768,7 @@ class OperationsStore:
             # inherit the old "applied" flags.
             previous_actions = {action.id: action.status for anomaly in self._anomalies if anomaly.status != "resolved" for action in anomaly.actions}
             resolved = [anomaly for anomaly in self._anomalies if anomaly.status == "resolved"]
-            detected = detect_anomalies(self._dataset, self._ml_selection.inventory_scores)
+            detected = detect_anomalies(self._dataset, self._ml_selection.inventory_scores) + detect_sap_anomalies(self._dataset)
             # Remediated defects are gone from the source data, so they are not
             # re-detected; keep their resolved records so containment stays visible.
             detected_ids = {anomaly.id for anomaly in detected}

@@ -6,7 +6,7 @@ import { CascadeGraph, CascadeLegend, CascadeSummary } from '../components/Casca
 import { MetricCard } from '../components/MetricCard'
 import { currency, timeAgo } from '../utils'
 
-export function CommandCenter({ dashboard, anomalies, graph, onNavigate, onSelectAnomaly, onScan, scanning }) {
+export function CommandCenter({ dashboard, workflow, anomalies, graph, onNavigate, onSelectAnomaly, onScan, scanning }) {
   // Resolved findings stay in the payload for containment accounting; every
   // "act on this" surface shows open work only.
   const open = useMemo(() => anomalies?.filter((item) => item.status !== 'resolved') || [], [anomalies])
@@ -18,6 +18,7 @@ export function CommandCenter({ dashboard, anomalies, graph, onNavigate, onSelec
       <div className="hero-actions"><span className="scan-state"><span className="pulse-dot" />Last scan {dashboard?.last_scan ? timeAgo(dashboard.last_scan) : 'now'}</span><button className="primary-button" onClick={onScan} disabled={scanning}><ScanLine size={16} />{scanning ? 'Scanning mesh…' : 'Run intelligence scan'}</button></div>
     </section>
     <section className={`metrics-grid ${scanning ? 'scanning' : ''}`}>{dashboard?.metrics?.map((metric, index) => <MetricCard metric={metric} index={index} scanning={scanning} key={metric.label} />)}{scanning && <span className="radar-sweep" aria-hidden="true" />}</section>
+    {workflow && <section className="workflow-strip card-surface"><div><span>My decision queue</span><strong>{workflow.awaiting_my_decision}</strong></div><div><span>Value awaiting approval</span><strong>{currency(workflow.value_awaiting_approval)}</strong></div><div><span>Verified value protected</span><strong>{currency(workflow.verified_value_protected)}</strong></div><button className="text-button" onClick={() => onNavigate('changes')}>Open change ledger <ArrowUpRight size={15} /></button></section>}
     <section className="command-grid">
       <article className="map-card card-surface"><div className="section-title"><div><span className="eyebrow"><Sparkles size={14} /> Cascade intelligence</span><h2>What breaks next</h2></div><button className="text-button" onClick={() => onNavigate('cascade')}>Expand map <ArrowUpRight size={15} /></button></div>
         <div className="map-stage"><CascadeGraph graph={graph} compact onSelect={(node) => onSelectAnomaly({ id: node.anomaly_id || primary?.id })} /><CascadeSummary anomaly={primary} onExplore={() => onNavigate('cascade')} /></div><CascadeLegend />

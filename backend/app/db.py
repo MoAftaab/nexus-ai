@@ -9,7 +9,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any, Iterator
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, create_engine, delete, func, select, update
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, create_engine, delete, func, inspect, select, text, update
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 from sqlalchemy.types import JSON
 
@@ -27,6 +27,7 @@ class DatasetRunModel(Base):
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    site_id: Mapped[str | None] = mapped_column(String(32), nullable=True, default="wolfsburg", index=True)
 
 
 class PayloadRecord(Base):
@@ -61,6 +62,7 @@ class DocumentModel(Base):
     extracted_data: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     cross_check_results: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    site_id: Mapped[str | None] = mapped_column(String(32), nullable=True, default="wolfsburg", index=True)
 
 
 class AnomalyModel(Base):
@@ -73,6 +75,7 @@ class AnomalyModel(Base):
     impact: Mapped[int] = mapped_column(Integer, index=True)
     payload: Mapped[dict[str, Any]] = mapped_column(JSON)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    site_id: Mapped[str | None] = mapped_column(String(32), nullable=True, default="wolfsburg", index=True)
 
 
 class FixActionModel(Base):
@@ -83,6 +86,7 @@ class FixActionModel(Base):
     status: Mapped[str] = mapped_column(String(24), default="recommended", index=True)
     payload: Mapped[dict[str, Any]] = mapped_column(JSON)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    site_id: Mapped[str | None] = mapped_column(String(32), nullable=True, default="wolfsburg", index=True)
 
 
 class AuditLogModel(Base):
@@ -107,6 +111,101 @@ class OutcomeModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
 
 
+class SiteModel(Base):
+    __tablename__ = "sites"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    site_id: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(128))
+    plant_code: Mapped[str] = mapped_column(String(16))
+    timezone: Mapped[str] = mapped_column(String(64))
+
+
+class UserModel(Base):
+    __tablename__ = "users"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    display_name: Mapped[str] = mapped_column(String(128))
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    role: Mapped[str] = mapped_column(String(48), index=True)
+    site_scopes: Mapped[list[str]] = mapped_column(JSON, default=list)
+    password_hash: Mapped[str] = mapped_column(String(256))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class SessionModel(Base):
+    __tablename__ = "sessions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    session_token: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    user_id: Mapped[str] = mapped_column(String(64), index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class ApprovalPolicyModel(Base):
+    __tablename__ = "approval_policies"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    rules: Mapped[list[dict[str, Any]]] = mapped_column(JSON)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_by: Mapped[str] = mapped_column(String(64))
+
+
+class ChangeRequestModel(Base):
+    __tablename__ = "change_requests"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    request_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    anomaly_id: Mapped[str] = mapped_column(String(64), index=True)
+    action_id: Mapped[str] = mapped_column(String(64), index=True)
+    site_id: Mapped[str] = mapped_column(String(32), index=True)
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    severity: Mapped[str] = mapped_column(String(16))
+    impact_euros: Mapped[int] = mapped_column(Integer)
+    is_regulated: Mapped[bool] = mapped_column(Boolean, default=False)
+    requested_by: Mapped[str] = mapped_column(String(64))
+    policy_version: Mapped[int] = mapped_column(Integer)
+    before_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON)
+    proposed_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON)
+    after_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    source_hash: Mapped[str] = mapped_column(String(128))
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class ApprovalStepModel(Base):
+    __tablename__ = "approval_steps"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    request_id: Mapped[str] = mapped_column(String(64), index=True)
+    stage: Mapped[str] = mapped_column(String(48))
+    required_role: Mapped[str] = mapped_column(String(48))
+    assigned_to: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    site_id: Mapped[str] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(String(24), default="waiting")
+    sla_deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    decided_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    decision: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    comment: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    order_index: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class NotificationModel(Base):
+    __tablename__ = "notifications"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    notification_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    user_id: Mapped[str] = mapped_column(String(64), index=True)
+    site_id: Mapped[str] = mapped_column(String(32), index=True)
+    request_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    notification_type: Mapped[str] = mapped_column(String(32), index=True)
+    title: Mapped[str] = mapped_column(String(255))
+    message: Mapped[str] = mapped_column(String(500))
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+
+
 class Repository:
     def __init__(self, settings: Settings):
         connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
@@ -115,6 +214,17 @@ class Repository:
 
     def initialize(self) -> None:
         Base.metadata.create_all(self.engine)
+        # Existing demo databases predate the governance columns. They are
+        # additive nullable fields, so add them in place without touching any
+        # payload records or rebuilding a table.
+        inspector = inspect(self.engine)
+        for table in ("dataset_runs", "documents", "anomalies", "fix_actions"):
+            if table not in inspector.get_table_names():
+                continue
+            columns = {column["name"] for column in inspector.get_columns(table)}
+            if "site_id" not in columns:
+                with self.engine.begin() as connection:
+                    connection.execute(text(f'ALTER TABLE "{table}" ADD COLUMN site_id VARCHAR(32)'))
 
     @contextmanager
     def session(self) -> Iterator[Session]:
@@ -155,7 +265,7 @@ class Repository:
                 session.execute(delete(DocumentModel).where(DocumentModel.run_id == previous_run_id, DocumentModel.status == "source"))
                 session.execute(update(DocumentModel).where(DocumentModel.run_id == previous_run_id).values(run_id=None))
                 session.execute(delete(DatasetRunModel).where(DatasetRunModel.id == previous_run_id))
-            run = DatasetRunModel(seed=data.seed, generated_at=data.generated_at, metadata_json=ml_metadata, is_active=True)
+            run = DatasetRunModel(seed=data.seed, generated_at=data.generated_at, metadata_json=ml_metadata, is_active=True, site_id="wolfsburg")
             session.add(run); session.flush()
             for model, records, key_field in source_groups:
                 session.bulk_save_objects([model(run_id=run.id, source_key=str(record.get(key_field, index)), payload=_jsonable(record)) for index, record in enumerate(records)])
@@ -163,9 +273,9 @@ class Repository:
                 session.add(DocumentModel(run_id=run.id, document_id=document["id"], filename=f"{document['id']}.json", document_type=document.get("type", "Source control"), status="source", extracted_data=_jsonable(document), cross_check_results=[]))
             for anomaly in anomalies:
                 payload = anomaly.model_dump(mode="json")
-                session.add(AnomalyModel(run_id=run.id, anomaly_id=anomaly.id, severity=anomaly.severity, status=anomaly.status, impact=anomaly.impact, payload=payload))
+                session.add(AnomalyModel(run_id=run.id, anomaly_id=anomaly.id, severity=anomaly.severity, status=anomaly.status, impact=anomaly.impact, payload=payload, site_id="wolfsburg"))
                 for action in anomaly.actions:
-                    session.add(FixActionModel(anomaly_id=anomaly.id, action_id=action.id, status=action.status, payload=action.model_dump(mode="json")))
+                    session.add(FixActionModel(anomaly_id=anomaly.id, action_id=action.id, status=action.status, payload=action.model_dump(mode="json"), site_id="wolfsburg"))
             return run.id
 
     def load_run(self):
@@ -196,13 +306,13 @@ class Repository:
                     row.payload = payload; row.status = anomaly.status; row.severity = anomaly.severity; row.impact = anomaly.impact
                 else:
                     # Findings born after boot (live injections) must survive restarts.
-                    session.add(AnomalyModel(run_id=run_id, anomaly_id=anomaly.id, severity=anomaly.severity, status=anomaly.status, impact=anomaly.impact, payload=payload))
+                    session.add(AnomalyModel(run_id=run_id, anomaly_id=anomaly.id, severity=anomaly.severity, status=anomaly.status, impact=anomaly.impact, payload=payload, site_id="wolfsburg"))
                 for action in anomaly.actions:
                     action_row = session.scalar(select(FixActionModel).where(FixActionModel.action_id == action.id))
                     if action_row:
                         action_row.status = action.status; action_row.payload = action.model_dump(mode="json")
                     else:
-                        session.add(FixActionModel(anomaly_id=anomaly.id, action_id=action.id, status=action.status, payload=action.model_dump(mode="json")))
+                        session.add(FixActionModel(anomaly_id=anomaly.id, action_id=action.id, status=action.status, payload=action.model_dump(mode="json"), site_id="wolfsburg"))
 
     def add_audit(self, event_id: str, event_type: str, actor: str, payload: dict[str, Any]) -> None:
         with self.session() as session:

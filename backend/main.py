@@ -5,9 +5,10 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile, WebSocket
+from fastapi import FastAPI, File, Header, HTTPException, Query, UploadFile, WebSocket
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import select
 
 from app.config import get_settings
 from app.models import ChatRequest
@@ -15,6 +16,13 @@ from app.services.operations import OperationsStore
 from app.services.document_parser import inspect_and_index
 from app.services.reasoner import answer_chat, stream_chat
 from app.services.event_bus import EventBus
+from app.services.auth import can_access_site, principal_from_token, sign_in, sign_out
+from app.services.change_control import (
+    build_change_preview, cancel_change_request, create_change_request, decide_approval,
+    diff_snapshots, execute_approved_change, inbox as approval_inbox, list_requests,
+    revise_change_request, rollback_change, serialize_request, submit_change_request, workflow_summary,
+)
+from app.services.notifications import list_notifications, mark_notification_read
 from app.db import ContainerModel, DispatchScheduleModel, InboundOrderModel, InventoryPositionModel, MasterSkuModel, OutboundOrderModel, SupplierModel, WorkforceLogModel
 
 
@@ -48,6 +56,300 @@ app.add_middleware(
 @app.get("/api/health")
 async def health() -> dict[str, str]:
     return {"status": "healthy", "time": datetime.now(timezone.utc).isoformat(), "mode": "openai" if settings.openai_api_key else "demo"}
+
+
+def current_user(authorization: str | None) -> dict[str, object]:
+    token = authorization.removeprefix("Bearer ").strip() if authorization else None
+    user = principal_from_token(store.repository, token)
+    if not user:
+        raise HTTPException(status_code=401, detail="A valid NexusAI session is required")
+    return user
+
+
+def admin_user(authorization: str | None) -> dict[str, object]:
+    user = current_user(authorization)
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Administrator role required")
+    return user
+
+
+@app.post("/api/auth/signin")
+async def auth_signin(payload: dict[str, str]) -> dict[str, object]:
+    if not payload.get("email") or not payload.get("password"):
+        raise HTTPException(status_code=422, detail="Email and password are required")
+    result = sign_in(store.repository, payload["email"], payload["password"])
+    if not result:
+        raise HTTPException(status_code=401, detail="Invalid demo credentials")
+    return result
+
+
+@app.post("/api/auth/signout")
+async def auth_signout(authorization: str | None = Header(default=None)) -> dict[str, bool]:
+    current_user(authorization)
+    token = authorization.removeprefix("Bearer ").strip() if authorization else ""
+    return {"signed_out": sign_out(store.repository, token)}
+
+
+@app.get("/api/auth/me")
+async def auth_me(authorization: str | None = Header(default=None)) -> dict[str, object]:
+    return current_user(authorization)
+
+
+@app.get("/api/sites")
+async def sites(authorization: str | None = Header(default=None)) -> dict[str, object]:
+    user = current_user(authorization)
+    from app.db import SiteModel
+    with store.repository.session() as session:
+        rows = session.scalars(select(SiteModel).order_by(SiteModel.id)).all()
+        result = [{"site_id": row.site_id, "name": row.name, "plant_code": row.plant_code, "timezone": row.timezone} for row in rows if can_access_site(user, row.site_id)]
+    return {"items": result}
+
+
+@app.post("/api/changes/preview")
+async def change_preview(payload: dict[str, str], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    user = current_user(authorization)
+    missing = [field for field in ("anomaly_id", "action_id") if not payload.get(field)]
+    if missing:
+        raise HTTPException(status_code=422, detail=f"Preview requires: {', '.join(missing)}")
+    try:
+        return build_change_preview(payload.get("anomaly_id", ""), payload.get("action_id", ""), user, store.repository, store)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except (PermissionError, ValueError) as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+
+
+@app.post("/api/changes", status_code=201)
+async def change_create(payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    user = current_user(authorization)
+    if user.get("role") not in {"operator", "lead", "manager", "quality_compliance", "director", "admin"}:
+        raise HTTPException(status_code=403, detail="Read-only users cannot create change requests")
+    try:
+        request = create_change_request(payload, user, store.repository, store)
+    except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    except (KeyError, TypeError, ValueError) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return serialize_request(store.repository, request.request_id, user) or {}
+
+
+@app.get("/api/changes")
+async def changes(status: str | None = None, site_id: str | None = None, severity: str | None = None, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    user = current_user(authorization)
+    items = list_requests(store.repository, user)
+    if status:
+        items = [item for item in items if item["status"] == status]
+    if site_id:
+        items = [item for item in items if item["site_id"] == site_id]
+    if severity:
+        items = [item for item in items if item["severity"] == severity]
+    return {"items": items, "total": len(items)}
+
+
+@app.get("/api/changes/{request_id}")
+async def change_detail(request_id: str, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    result = serialize_request(store.repository, request_id, current_user(authorization))
+    if not result:
+        raise HTTPException(status_code=404, detail="Change request not found")
+    return result
+
+
+@app.post("/api/changes/{request_id}/submit")
+async def change_submit(request_id: str, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    user = current_user(authorization)
+    try:
+        submit_change_request(request_id, user, store.repository)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    result = serialize_request(store.repository, request_id, user) or {}
+    await event_bus.publish("approval_stage_activated", {"request_id": request_id, "site_id": result.get("site_id"), "status": result.get("status")})
+    return result
+
+
+@app.post("/api/changes/{request_id}/revise")
+async def change_revise(request_id: str, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    user = current_user(authorization)
+    try:
+        revise_change_request(request_id, user, store.repository, store)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    result = serialize_request(store.repository, request_id, user) or {}
+    await event_bus.publish("change_revised", {"request_id": request_id, "site_id": result.get("site_id"), "status": result.get("status"), "revision_count": result.get("revision_count", 0)})
+    return result
+
+
+async def _decide(request_id: str, decision: str, payload: dict[str, object], authorization: str | None):
+    user = current_user(authorization)
+    try:
+        request = decide_approval(request_id, decision, str(payload.get("comment") or ""), user, store.repository)
+        if decision == "approved" and request.status == "approved":
+            request = execute_approved_change(request_id, user, store.repository, store)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    result = serialize_request(store.repository, request_id, user) or {}
+    event_type = "approval_decided" if decision == "approved" else f"change_{'rejected' if decision == 'rejected' else 'returned'}"
+    await event_bus.publish(event_type, {"request_id": request_id, "site_id": result.get("site_id"), "status": result.get("status"), "decision": decision})
+    if result.get("status") == "verified":
+        await event_bus.publish("change_verified", {"request_id": request_id, "site_id": result.get("site_id"), "status": "verified"})
+    return result
+
+
+@app.post("/api/changes/{request_id}/approve")
+async def change_approve(request_id: str, payload: dict[str, object] | None = None, authorization: str | None = Header(default=None)):
+    return await _decide(request_id, "approved", payload or {}, authorization)
+
+
+@app.post("/api/changes/{request_id}/reject")
+async def change_reject(request_id: str, payload: dict[str, object] | None = None, authorization: str | None = Header(default=None)):
+    return await _decide(request_id, "rejected", payload or {}, authorization)
+
+
+@app.post("/api/changes/{request_id}/return")
+async def change_return(request_id: str, payload: dict[str, object] | None = None, authorization: str | None = Header(default=None)):
+    return await _decide(request_id, "returned", payload or {}, authorization)
+
+
+@app.post("/api/changes/{request_id}/cancel")
+async def change_cancel(request_id: str, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    user = current_user(authorization)
+    try:
+        cancel_change_request(request_id, user, store.repository)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except (PermissionError, ValueError) as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    result = serialize_request(store.repository, request_id, user) or {}
+    await event_bus.publish("change_cancelled", {"request_id": request_id, "site_id": result.get("site_id"), "status": result.get("status")})
+    return result
+
+
+@app.post("/api/changes/{request_id}/rollback")
+async def change_rollback(request_id: str, payload: dict[str, object] | None = None, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    user = current_user(authorization)
+    try:
+        rollback_change(request_id, str((payload or {}).get("comment") or ""), user, store.repository, store)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    result = serialize_request(store.repository, request_id, user) or {}
+    await event_bus.publish("change_rollback", {"request_id": request_id, "site_id": result.get("site_id"), "status": result.get("status")})
+    return result
+
+
+@app.get("/api/changes/{request_id}/diff")
+async def change_diff(request_id: str, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    result = serialize_request(store.repository, request_id, current_user(authorization))
+    if not result:
+        raise HTTPException(status_code=404, detail="Change request not found")
+    return {"request_id": request_id, "fields": diff_snapshots(result["before_snapshot"], result["proposed_snapshot"], result.get("after_snapshot")), "data_preview": result.get("data_preview", []), "effect": result.get("effect", {})}
+
+
+@app.get("/api/notifications")
+async def notifications(unread_only: bool = False, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    user = current_user(authorization)
+    items = list_notifications(store.repository, user, unread_only)
+    return {"items": items, "unread": sum(1 for item in items if not item["read"]), "total": len(items)}
+
+
+@app.post("/api/notifications/{notification_id}/read")
+async def notification_read(notification_id: str, authorization: str | None = Header(default=None)) -> dict[str, bool]:
+    user = current_user(authorization)
+    if not mark_notification_read(store.repository, notification_id, user):
+        raise HTTPException(status_code=404, detail="Notification not found")
+    return {"ok": True}
+
+
+@app.get("/api/inbox")
+async def inbox(authorization: str | None = Header(default=None)) -> dict[str, object]:
+    return {"items": approval_inbox(store.repository, current_user(authorization))}
+
+
+@app.get("/api/workflow/summary")
+async def workflow(authorization: str | None = Header(default=None)) -> dict[str, object]:
+    return workflow_summary(store.repository, current_user(authorization))
+
+
+@app.get("/api/admin/users")
+async def admin_users(authorization: str | None = Header(default=None)) -> dict[str, object]:
+    admin_user(authorization)
+    from app.db import UserModel
+    with store.repository.session() as session:
+        rows = session.scalars(select(UserModel).order_by(UserModel.id)).all()
+        return {"items": [{"user_id": row.user_id, "email": row.email, "display_name": row.display_name, "role": row.role, "site_scopes": row.site_scopes, "is_active": row.is_active} for row in rows]}
+
+
+@app.post("/api/admin/users")
+async def admin_user_upsert(payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    admin = admin_user(authorization)
+    from app.db import UserModel
+    from app.services.auth import ROLES, _hash_password
+    if payload.get("role") not in ROLES or not payload.get("email"):
+        raise HTTPException(status_code=422, detail="Valid email and role are required")
+    with store.repository.session() as session:
+        email = str(payload["email"]).lower()
+        row = session.scalar(select(UserModel).where(UserModel.email == email))
+        if row:
+            row.display_name = str(payload.get("display_name") or row.display_name)
+            row.role = str(payload["role"])
+            row.site_scopes = list(payload.get("site_scopes") or [])
+            row.is_active = bool(payload.get("is_active", row.is_active))
+        else:
+            row = UserModel(user_id=email.split("@", 1)[0], email=email, display_name=str(payload.get("display_name") or email), role=str(payload["role"]), site_scopes=list(payload.get("site_scopes") or []), password_hash=_hash_password(str(payload.get("password") or "nexusai2026")))
+            session.add(row)
+        session.flush()
+        return {"user_id": row.user_id, "email": row.email, "display_name": row.display_name, "role": row.role, "site_scopes": row.site_scopes, "updated_by": admin["user_id"]}
+
+
+@app.get("/api/admin/policy")
+async def admin_policy(authorization: str | None = Header(default=None)) -> dict[str, object]:
+    admin_user(authorization)
+    from app.db import ApprovalPolicyModel
+    with store.repository.session() as session:
+        row = session.scalar(select(ApprovalPolicyModel).where(ApprovalPolicyModel.is_active.is_(True)).order_by(ApprovalPolicyModel.version.desc()))
+        return {"version": row.version, "rules": row.rules, "created_by": row.created_by, "created_at": row.created_at.isoformat()}
+
+
+@app.put("/api/admin/policy")
+async def admin_policy_update(payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    admin = admin_user(authorization)
+    from app.db import ApprovalPolicyModel
+    rules = payload.get("rules")
+    if not isinstance(rules, list) or not rules:
+        raise HTTPException(status_code=422, detail="Policy rules must be a non-empty list")
+    with store.repository.session() as session:
+        current = session.scalar(select(ApprovalPolicyModel).where(ApprovalPolicyModel.is_active.is_(True)).order_by(ApprovalPolicyModel.version.desc()))
+        version = current.version + 1 if current else 1
+        if current:
+            current.is_active = False
+        row = ApprovalPolicyModel(version=version, rules=rules, is_active=True, created_by=str(admin["user_id"]))
+        session.add(row)
+        session.flush()
+        result = {"version": row.version, "rules": row.rules, "created_by": row.created_by}
+    store.repository.add_audit(f"POLICY-{result['version']}-{admin['user_id']}", "policy_updated", str(admin["email"]), {"role": admin["role"], "site_id": "*", "policy_version": result["version"], "rules": rules})
+    return result
+
+
+@app.post("/api/admin/policy")
+async def admin_policy_post(payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    # Keep an explicit method response so role failures are authorization errors,
+    # while policy writes remain versioned through the documented PUT endpoint.
+    admin_user(authorization)
+    raise HTTPException(status_code=405, detail="Use PUT /api/admin/policy")
 
 
 @app.get("/api/dashboard")
@@ -319,7 +621,9 @@ async def inspect_document(file: UploadFile = File(...)) -> object:
 
 @app.websocket("/ws/operations")
 async def operations_socket(websocket: WebSocket) -> None:
-    await event_bus.connect(websocket)
+    token = websocket.query_params.get("token")
+    principal = principal_from_token(store.repository, token) if token else None
+    await event_bus.connect(websocket, principal.get("site_scopes") if principal else None)
     try:
         while True:
             dashboard_data = store.dashboard()

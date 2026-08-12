@@ -1,8 +1,17 @@
 const API_BASE = import.meta.env.VITE_API_URL || ''
+const SESSION_KEY = 'nexusai.session'
+
+export function session() {
+  try { return JSON.parse(window.localStorage.getItem(SESSION_KEY) || 'null') } catch { return null }
+}
+
+export function clearSession() { window.localStorage.removeItem(SESSION_KEY) }
 
 async function request(path, options = {}) {
+  const stored = session()
+  const auth = stored?.session_token ? { Authorization: `Bearer ${stored.session_token}` } : {}
   const response = await fetch(`${API_BASE}${path}`, {
-    headers: options.body instanceof FormData ? undefined : { 'Content-Type': 'application/json', ...options.headers },
+    headers: options.body instanceof FormData ? { ...auth, ...options.headers } : { 'Content-Type': 'application/json', ...auth, ...options.headers },
     ...options,
   })
   if (!response.ok) {
@@ -13,6 +22,28 @@ async function request(path, options = {}) {
 }
 
 export const api = {
+  signIn: (payload) => request('/api/auth/signin', { method: 'POST', body: JSON.stringify(payload) }),
+  signOut: () => request('/api/auth/signout', { method: 'POST' }),
+  me: () => request('/api/auth/me'),
+  sites: () => request('/api/sites'),
+  changes: (params = {}) => request(`/api/changes?${new URLSearchParams(Object.entries(params).filter(([, value]) => value))}`),
+  change: (id) => request(`/api/changes/${id}`),
+  changePreview: (payload) => request('/api/changes/preview', { method: 'POST', body: JSON.stringify(payload) }),
+  createChange: (payload) => request('/api/changes', { method: 'POST', body: JSON.stringify(payload) }),
+  submitChange: (id) => request(`/api/changes/${id}/submit`, { method: 'POST' }),
+  reviseChange: (id) => request(`/api/changes/${id}/revise`, { method: 'POST' }),
+  decideChange: (id, decision, comment) => { const route = { approved: 'approve', rejected: 'reject', returned: 'return' }[decision] || decision; return request(`/api/changes/${id}/${route}`, { method: 'POST', body: JSON.stringify({ comment }) }) },
+  cancelChange: (id) => request(`/api/changes/${id}/cancel`, { method: 'POST' }),
+  rollbackChange: (id, comment) => request(`/api/changes/${id}/rollback`, { method: 'POST', body: JSON.stringify({ comment }) }),
+  changeDiff: (id) => request(`/api/changes/${id}/diff`),
+  notifications: (unreadOnly = false) => request(`/api/notifications${unreadOnly ? '?unread_only=true' : ''}`),
+  markNotificationRead: (id) => request(`/api/notifications/${id}/read`, { method: 'POST' }),
+  inbox: () => request('/api/inbox'),
+  workflowSummary: () => request('/api/workflow/summary'),
+  adminUsers: () => request('/api/admin/users'),
+  saveAdminUser: (payload) => request('/api/admin/users', { method: 'POST', body: JSON.stringify(payload) }),
+  policy: () => request('/api/admin/policy'),
+  savePolicy: (payload) => request('/api/admin/policy', { method: 'PUT', body: JSON.stringify(payload) }),
   dashboard: () => request('/api/dashboard'),
   agents: () => request('/api/agents'),
   anomalies: (params = {}) => request(`/api/anomalies?${new URLSearchParams(Object.entries(params).filter(([, value]) => value && value !== 'all'))}`),

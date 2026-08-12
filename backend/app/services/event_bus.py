@@ -13,16 +13,19 @@ class EventBus:
     def __init__(self, redis_url: str):
         self.redis_url = redis_url
         self.connections: set[WebSocket] = set()
+        self.connection_scopes: dict[WebSocket, list[str] | None] = {}
         self._redis = None
         self._listener_task: asyncio.Task | None = None
         self._origin = uuid.uuid4().hex
 
-    async def connect(self, websocket: WebSocket) -> None:
+    async def connect(self, websocket: WebSocket, site_scopes: list[str] | None = None) -> None:
         await websocket.accept()
         self.connections.add(websocket)
+        self.connection_scopes[websocket] = site_scopes
 
     def disconnect(self, websocket: WebSocket) -> None:
         self.connections.discard(websocket)
+        self.connection_scopes.pop(websocket, None)
 
     async def _redis_client(self):
         if self._redis is not None:
@@ -40,6 +43,10 @@ class EventBus:
         stale: list[WebSocket] = []
         for websocket in tuple(self.connections):
             try:
+                scopes = self.connection_scopes.get(websocket)
+                site_id = event.get("site_id")
+                if site_id and scopes is not None and "*" not in scopes and site_id not in scopes:
+                    continue
                 await websocket.send_json(event)
             except Exception:
                 stale.append(websocket)

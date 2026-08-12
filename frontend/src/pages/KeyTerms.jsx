@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { BookOpen, Boxes, Factory, Network, Search, Cpu } from 'lucide-react'
+import { BookOpen, Boxes, Database, Factory, Network, Search, Cpu } from 'lucide-react'
 
 const GROUPS = [
   {
@@ -59,6 +59,20 @@ const GROUPS = [
       { term: 'P90 impact', full: null, simple: 'The damage level only exceeded in the worst 10% of trials. "Plan for this, hope for less."', here: 'Shown in the ribbon so operators see tail risk, not just averages.' },
       { term: 'What-if simulation', full: null, simple: 'Re-running the same 1,000 trials with a proposed fix applied virtually, to price the fix before committing to it.', here: 'Scenario controls on the Cascade map: exposure with vs without each control.' },
       { term: 'Blast radius', full: null, simple: 'Everything downstream that one root cause can touch — orders, dispatches, docks, the line.', here: 'The node count and euro total attached to every cascade.' },
+    ],
+  },
+  {
+    id: 'sap',
+    icon: Database,
+    title: 'SAP inventory controls',
+    intro: 'The MARD view anchors material stock to the storage location, period, and physical-count evidence that the ERP uses to plan movement.',
+    terms: [
+      { term: 'SAP MARD', full: 'Material Stock at Storage Location', simple: 'The SAP stock view that records how much of a material sits at each storage location.', here: 'The SAP ERP tab in Reconciliation shows the live MARD fields alongside WMS, ERP, TMS, and count values.' },
+      { term: 'Plant 1400', full: 'VW Kassel Distribution Center', simple: 'The Kassel DC plant code used by the seeded SAP dataset.', here: 'Every real SAP anchor record is tied to plant 1400 and instance Kassel.' },
+      { term: 'Fiscal period desynchronization', full: null, simple: 'An ERP material record is still in a prior fiscal year, so period close and goods movements can be blocked.', here: 'Nexus groups FY2022–FY2025 records by severity and exposes the affected storage locations.' },
+      { term: 'Storage location fragmentation', full: null, simple: 'One material is spread across many zero-stock locations, bloating MRP and increasing picking error risk.', here: 'The fragmentation detector flags more than 15 zero-stock storage locations for one material.' },
+      { term: 'Physical inventory blocking', full: null, simple: 'A SAP flag that prevents goods movement while a count is unposted or under review.', here: 'Unposted count records are grouped into a physical-inventory audit finding.' },
+      { term: 'Deletion flag (LVORM)', full: null, simple: 'The master-data marker that retires a material/storage location from normal use.', here: 'A deleted location with active stock is escalated and routed through governed change control.' },
     ],
   },
 ]

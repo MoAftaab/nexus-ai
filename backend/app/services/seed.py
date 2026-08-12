@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+import csv
+from pathlib import Path
 import random
 from typing import Any
 
@@ -33,7 +35,55 @@ PART_FAMILIES = {
 SUPPLIERS = ("Nordwerk Components", "RheinMotion Systems", "Autotec Werke", "Vektor Mobility", "Helios Parts")
 WAREHOUSES = ("WH-01", "WH-02")
 ZONES = ("A-12", "B-07", "JIS-07", "Q-04", "HZ-02")
-TARGET_COUNTS = {"master_skus": 5_000, "inventory_positions": 15_000, "inbound_orders": 2_000, "outbound_orders": 10_000, "dispatch_schedule": 500, "workforce_logs": 20_000, "documents": 200, "containers": 20_000}
+TARGET_COUNTS = {
+    "master_skus": 5_000,
+    "inventory_positions": 15_000,
+    "inbound_orders": 2_000,
+    "outbound_orders": 10_000,
+    "dispatch_schedule": 500,
+    "workforce_logs": 20_000,
+    "documents": 200,
+    "containers": 20_000,
+    "sap_anchor_records": 818,
+    "sap_materials": 57,
+    "sap_storage_locations": 46,
+}
+
+SAP_CSV_PATH = Path(__file__).parent.parent.parent / "datasets" / "matstorloc.csv"
+
+
+def _number(value: str | None) -> float:
+    try:
+        return float((value or "").strip() or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _load_sap_records() -> list[dict[str, Any]]:
+    """Load and normalize the real SAP MARD records used as deterministic anchors."""
+    records: list[dict[str, Any]] = []
+    with SAP_CSV_PATH.open(newline="", encoding="utf-8-sig") as handle:
+        for row in csv.DictReader(handle):
+            cleaned = {key: (value or "").strip() for key, value in row.items()}
+            for key in (
+                "freeavailablestock", "stockintransfer", "stockinqualityinspection",
+                "totalstockofallrestrbatches", "blockedstock", "blockedstockreturns",
+                "valunrestusestockprevper", "stockintransferprevper",
+                "stockinqualityinsprevper", "restrictedusestockprevper",
+                "blockedstockprevper", "blockedstockreturnsprevper",
+            ):
+                cleaned[key] = _number(cleaned.get(key))
+            cleaned["fiscalyearofcurrentperiod"] = int(cleaned.get("fiscalyearofcurrentperiod") or 2026)
+            cleaned["currentperiod"] = (cleaned.get("currentperiod") or "").zfill(2)
+            cleaned["material"] = cleaned.get("material", "").strip()
+            cleaned["plant"] = cleaned.get("plant", "").strip()
+            cleaned["storagelocation"] = cleaned.get("storagelocation", "").strip()
+            cleaned["sap_anchor"] = True
+            cleaned["sap_source_id"] = cleaned.get("vwgl_matstorloc_id")
+            records.append(cleaned)
+    if len(records) != TARGET_COUNTS["sap_anchor_records"]:
+        raise ValueError(f"Expected {TARGET_COUNTS['sap_anchor_records']} SAP records, found {len(records)}")
+    return records
 
 
 @dataclass
@@ -68,22 +118,26 @@ def _edge(source: str, target: str, label: str, probability: int) -> CascadeEdge
 
 
 def generate_dataset(seed: int | None = None) -> SyntheticDataset:
-    generated_at = datetime.now(timezone.utc).replace(microsecond=0)
-    effective_seed = seed if seed is not None else int(generated_at.timestamp() * 1000) % 2_147_483_647
+    effective_seed = seed if seed is not None else int(datetime.now(timezone.utc).timestamp() * 1000) % 2_147_483_647
+    # A fixed epoch for explicit seeds makes generated records byte-for-byte
+    # reproducible while None still produces a fresh demo run.
+    generated_at = (datetime(2026, 7, 20, 8, 0, tzinfo=timezone.utc) + timedelta(seconds=effective_seed % 86_400)).replace(microsecond=0)
     rng = random.Random(effective_seed)
+    sap_records = _load_sap_records()
+    sap_materials = sorted({record["material"] for record in sap_records})
+    sap_locations = sorted({record["storagelocation"] for record in sap_records})
     supplier_names = [*SUPPLIERS, *(f"{rng.choice(('Alpine', 'Hansa', 'Kern', 'Motive', 'Prisma'))} {rng.choice(('Automotive', 'Mobility', 'Systems', 'Components'))} {index:03}" for index in range(6, 201))]
     # Observed lead time tracks the configured master (drift < 3 days) so only the
     # injected stale-lead supplier below trips the reliability detector.
     suppliers = [{"id": f"SUP-{index + 1:03}", "name": name, "configured_lead": (configured_lead := rng.randint(3, 7)), "actual_lead": round(configured_lead + rng.uniform(-.8, 1.6), 1), "reliability": round(rng.uniform(.84, .98), 2)} for index, name in enumerate(supplier_names)]
     skus: list[dict[str, Any]] = []
-    for index in range(TARGET_COUNTS["master_skus"]):
+
+    def make_sku(index: int, sku_id: str | None = None) -> dict[str, Any]:
         family = rng.choice(tuple(PART_FAMILIES))
         name = rng.choice(PART_FAMILIES[family])
-        # Hazmat storage and handling flag stay consistent at generation time; the
-        # single conflicting record is injected below for the compliance detector.
         is_hazmat = family == "Fluids" and rng.random() < .35
         sku = {
-            "id": f"{family[:2].upper()}-{rng.randint(1000, 9999)}-{index:03}",
+            "id": sku_id or f"{family[:2].upper()}-{rng.randint(1000, 9999)}-{index:03}",
             "description": f"{name} {rng.choice(('LH', 'RH', 'Gen 2', 'Premium'))}",
             "family": family,
             "weight_kg": round(rng.uniform(.4, 24.5), 2),
@@ -102,15 +156,70 @@ def generate_dataset(seed: int | None = None) -> SyntheticDataset:
         sku["erp_weight_kg"] = sku["weight_kg"]
         sku["wms_weight_kg"] = sku["weight_kg"]
         sku["fitment_erp"] = sku["fitment_wms"]
-        skus.append(sku)
+        return sku
+
+    for material in sap_materials:
+        skus.append(make_sku(len(skus), material))
+    for index in range(TARGET_COUNTS["master_skus"]):
+        if len(skus) >= TARGET_COUNTS["master_skus"]:
+            break
+        skus.append(make_sku(len(skus)))
     inventory = []
     for index in range(TARGET_COUNTS["inventory_positions"]):
         sku = skus[index % len(skus)]
         actual = rng.randint(30, 760)
-        inventory.append({"id": f"INV-{index + 1:05}", "sku": sku["id"], "warehouse": rng.choice(WAREHOUSES), "zone": sku["bin"].rsplit("-", 1)[0], "bin": f"{sku['bin']}-{index % 3 + 1}", "wms": actual, "erp": actual, "tms": actual, "physical": actual, "allocated": rng.randint(0, min(80, actual // 4)), "last_count": generated_at - timedelta(minutes=rng.randint(8, 900))})
+        sap = sap_records[index] if index < len(sap_records) else None
+        if sap:
+            actual = 0 if sap["freeavailablestock"] == 0 else max(1, int(sap["freeavailablestock"]))
+            location = sap["storagelocation"]
+            sap_payload = dict(sap)
+        else:
+            year = rng.choices((2022, 2023, 2024, 2025, 2026), weights=(12, 26, 25, 18, 19))[0]
+            location = rng.choice(sap_locations)
+            sap_payload = {
+                "material": sku["id"], "plant": "1400", "storagelocation": location,
+                "maintenancestatus": "DL", "deletionflag": "X" if rng.random() < .005 else "",
+                "fiscalyearofcurrentperiod": year, "currentperiod": f"{rng.randint(1, 12):02}",
+                "physicalinventoryblockingind": "", "freeavailablestock": max(0, actual),
+                "baseunit": "ST", "stockintransfer": 0, "stockinqualityinspection": 0,
+                "totalstockofallrestrbatches": 0, "blockedstock": 0, "blockedstockreturns": 0,
+                "valunrestusestockprevper": 0, "stockintransferprevper": 0,
+                "stockinqualityinsprevper": 0, "restrictedusestockprevper": 0,
+                "blockedstockprevper": 0, "blockedstockreturnsprevper": 0,
+                "dateoflastpostedcount": "00000000" if rng.random() < .99 else generated_at.strftime("%Y%m%d"),
+                "creationdate": generated_at.strftime("%Y%m%d"), "instance": "Kassel",
+                "sap_anchor": False, "sap_source_id": None,
+            }
+        # Anchor material IDs, not the padded source values, are the canonical SKU keys.
+        anchor_sku = next((item for item in skus if item["id"] == sap_payload["material"]), sku)
+        row = {"id": f"INV-{index + 1:05}", "sku": anchor_sku["id"], "warehouse": rng.choice(WAREHOUSES), "zone": anchor_sku["bin"].rsplit("-", 1)[0], "bin": f"{anchor_sku['bin']}-{index % 3 + 1}", "wms": actual, "erp": actual, "tms": actual, "physical": actual, "allocated": rng.randint(0, min(80, actual // 4)), "last_count": generated_at - timedelta(minutes=rng.randint(8, 900))}
+        row.update(sap_payload)
+        inventory.append(row)
+
+    # Preserve the source distribution while making the demo defects explicit even
+    # if a future CSV revision contains fewer examples.
+    for row in inventory[:TARGET_COUNTS["sap_anchor_records"]]:
+        row["plant"] = "1400"
+    blocked_rows = [row for row in inventory[:TARGET_COUNTS["sap_anchor_records"]] if float(row.get("blockedstock", 0)) > 0]
+    for row in inventory[:TARGET_COUNTS["sap_anchor_records"]]:
+        if len(blocked_rows) >= 8:
+            break
+        if float(row.get("blockedstock", 0)) == 0:
+            row["blockedstock"] = 5
+            row["freeavailablestock"] = 0
+            blocked_rows.append(row)
+    fragmented_material = "0DD311159B"
+    fragmented_locations = {row["storagelocation"] for row in inventory if row.get("material") == fragmented_material and float(row.get("freeavailablestock", 0)) == 0}
+    spare_locations = [location for location in sap_locations if location not in fragmented_locations]
+    for row, location in zip((item for item in inventory[TARGET_COUNTS["sap_anchor_records"]:] if item.get("freeavailablestock", 0) > 0), spare_locations):
+        if len(fragmented_locations) >= 18:
+            break
+        row.update({"sku": fragmented_material, "material": fragmented_material, "storagelocation": location, "freeavailablestock": 0, "wms": 0, "erp": 0, "tms": 0, "physical": 0})
+        fragmented_locations.add(location)
     inbound_orders = []
     for index in range(TARGET_COUNTS["inbound_orders"]):
-        supplier, sku = rng.choice(suppliers), rng.choice(skus)
+        supplier = rng.choice(suppliers)
+        sku = skus[index % len(sap_materials)] if index < len(sap_materials) else rng.choice(skus)
         inbound_orders.append({"id": f"PO-{index + 1:06}", "supplier": supplier["id"], "sku": sku["id"], "expected_qty": rng.randint(50, 1000), "received_qty": rng.randint(35, 1000), "expected_date": (generated_at + timedelta(days=rng.randint(-16, 18))).date().isoformat(), "warehouse": rng.choice(WAREHOUSES), "quality_status": rng.choice(("accepted", "accepted", "pending", "partial"))})
     outbound_orders = []
     for index in range(TARGET_COUNTS["outbound_orders"]):
@@ -300,5 +409,5 @@ def build_reconciliation_rows(data: SyntheticDataset) -> list[dict[str, object]]
     for record in sorted(data.inventory, key=lambda item: max(item["wms"], item["erp"], item.get("tms", item["erp"]), item["physical"]) - min(item["wms"], item["erp"], item.get("tms", item["erp"]), item["physical"]), reverse=True)[:8]:
         variance = record["wms"] - record["physical"]
         spread = max(record["wms"], record["erp"], record.get("tms", record["erp"]), record["physical"]) - min(record["wms"], record["erp"], record.get("tms", record["erp"]), record["physical"])
-        rows.append({"id": record["id"], "sku": record["sku"], "description": sku_lookup[record["sku"]]["description"], "warehouse": record["warehouse"], "bin": record["bin"], "wms": record["wms"], "erp": record["erp"], "tms": record.get("tms", record["erp"]), "physical": record["physical"], "variance": variance, "root": "Movement journals require reconciliation" if spread else "Balances agree across all sources", "risk": "critical" if spread >= 25 else "watch" if spread else "healthy"})
+        rows.append({"id": record["id"], "sku": record["sku"], "description": sku_lookup[record["sku"]]["description"], "warehouse": record["warehouse"], "bin": record["bin"], "wms": record["wms"], "erp": record["erp"], "tms": record.get("tms", record["erp"]), "physical": record["physical"], "variance": variance, "root": "Movement journals require reconciliation" if spread else "Balances agree across all sources", "risk": "critical" if spread >= 25 else "watch" if spread else "healthy", "sap_anchor": bool(record.get("sap_anchor")), "material": record.get("material"), "plant": record.get("plant"), "storagelocation": record.get("storagelocation"), "fiscalyearofcurrentperiod": record.get("fiscalyearofcurrentperiod"), "currentperiod": record.get("currentperiod"), "deletionflag": record.get("deletionflag"), "blockedstock": record.get("blockedstock", 0), "dateoflastpostedcount": record.get("dateoflastpostedcount")})
     return rows
