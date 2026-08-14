@@ -339,7 +339,7 @@ SPECIALIST_TEMPERATURES: dict[str, float] = {
 # ---------------------------------------------------------------------------
 
 ORCHESTRATOR_PROMPT = (
-    "You are **Nexus Orchestrator**, the synthesis layer of an automotive "
+    "You are **Warehouse Control Tower Orchestrator**, the synthesis layer of an automotive "
     "supply-chain intelligence mesh.  You receive structured handoff notes from "
     "five specialist agents:\n"
     "  • Sentinel (anomaly detection)\n"
@@ -575,7 +575,7 @@ def _build_trace(handoffs, markdown, include_orchestrator: bool = False) -> list
     })
     if include_orchestrator:
         trace.append({
-            "agent": "Nexus",
+            "agent": "Control Tower",
             "role": "Orchestrator",
             "status": "synthesized",
             "detail": f"GPT-5.4 mini merged specialist handoffs (temperature={ORCHESTRATOR_TEMPERATURE})",

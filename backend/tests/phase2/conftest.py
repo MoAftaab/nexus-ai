@@ -1,9 +1,16 @@
 from __future__ import annotations
 
+import os
+
+os.environ["DATABASE_URL"] = "sqlite:///./nexus_test.db"
+os.environ["DEMO_SEED"] = "1234"
+os.environ["OPENAI_API_KEY"] = ""
+
 import pytest
 from fastapi.testclient import TestClient
 
 from main import app, store
+from app.services.auth import seed_users_and_sites
 
 
 @pytest.fixture
@@ -11,6 +18,7 @@ def client():
     # Each integration test owns a fresh source twin. This prevents a valid
     # approval in one test from resolving the finding required by another.
     store.reset_demo()
+    seed_users_and_sites(store.repository)
     with TestClient(app) as test_client:
         yield test_client
 

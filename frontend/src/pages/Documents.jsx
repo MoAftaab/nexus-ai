@@ -28,7 +28,7 @@ export function Documents({ onInspect, documentData }) {
 
   return <div className="page documents-page">
     <section className="page-lead">
-      <div><span className="eyebrow"><ScanSearch size={14} /> Document intelligence</span><h2>Release the right freight with the right proof.</h2><p>Drop a supplier packet, VDA label, ASN, invoice or count sheet. Nexus extracts evidence and compares it against operational controls.</p></div>
+      <div><span className="eyebrow"><ScanSearch size={14} /> Document intelligence</span><h2>Release the right freight with the right proof.</h2><p>Drop a supplier packet, VDA label, ASN, invoice or count sheet. Warehouse Control Tower AI extracts evidence and compares it against operational controls.</p></div>
       <div className="document-stat"><FileCheck2 size={20} /><div><strong>{documentData?.summary?.source_documents || 0} source documents monitored</strong><span>{documentData?.summary?.release_controls_needing_evidence || 0} controls need evidence · {documentData?.summary?.ingested_records || 0} ingested</span></div></div>
     </section>
     <section className="document-grid">

@@ -319,9 +319,14 @@ async def admin_user_upsert(payload: dict[str, object], authorization: str | Non
 async def admin_policy(authorization: str | None = Header(default=None)) -> dict[str, object]:
     admin_user(authorization)
     from app.db import ApprovalPolicyModel
+    from app.services.auth import default_policy_rules
     with store.repository.session() as session:
         row = session.scalar(select(ApprovalPolicyModel).where(ApprovalPolicyModel.is_active.is_(True)).order_by(ApprovalPolicyModel.version.desc()))
-        return {"version": row.version, "rules": row.rules, "created_by": row.created_by, "created_at": row.created_at.isoformat()}
+        if row is None:
+            row = ApprovalPolicyModel(version=1, rules=default_policy_rules(), is_active=True, created_by="system")
+            session.add(row)
+            session.flush()
+        return {"version": row.version, "rules": row.rules, "created_by": row.created_by, "created_at": row.created_at.isoformat() if row.created_at else datetime.now(timezone.utc).isoformat()}
 
 
 @app.put("/api/admin/policy")
@@ -362,10 +367,10 @@ async def agents() -> dict[str, object]:
     findings = store.anomalies()
     lead = findings[0] if findings else None
     return {"agents": store.dashboard()["agents"], "communication": [
-        {"from": "Sentinel", "to": "Correlator", "message": f"{lead.id if lead else 'No finding'} crossed its detection threshold", "time": (datetime.now(timezone.utc).replace(microsecond=0)).strftime("%H:%M")},
-        {"from": "Correlator", "to": "Cascade", "message": f"{len(lead.cascade_edges) if lead else 0} downstream dependencies confirmed", "time": (datetime.now(timezone.utc).replace(microsecond=0)).strftime("%H:%M")},
-        {"from": "Cascade", "to": "Impact", "message": f"{lead.time_to_impact if lead else 'No'} runway modeled to first consequence", "time": (datetime.now(timezone.utc).replace(microsecond=0)).strftime("%H:%M")},
-        {"from": "Impact", "to": "Fix", "message": f"{('€' + format(lead.impact, ',')) if lead else '€0'} modeled exposure ready for control design", "time": (datetime.now(timezone.utc).replace(microsecond=0)).strftime("%H:%M")},
+        {"from": "Monitor Agent", "to": "Investigator Agent", "message": f"{lead.id if lead else 'No finding'} crossed its detection threshold", "time": (datetime.now(timezone.utc).replace(microsecond=0)).strftime("%H:%M")},
+        {"from": "Investigator Agent", "to": "Advisor Agent", "message": f"{len(lead.cascade_edges) if lead else 0} cross-system dependencies identified", "time": (datetime.now(timezone.utc).replace(microsecond=0)).strftime("%H:%M")},
+        {"from": "Advisor Agent", "to": "Approval Agent", "message": f"{('€' + format(lead.impact, ',')) if lead else '€0'} exposure modeled — recommended control staged", "time": (datetime.now(timezone.utc).replace(microsecond=0)).strftime("%H:%M")},
+        {"from": "Approval Agent", "to": "Audit Agent", "message": "Awaiting authorized manager RBAC signature for immutable logging", "time": (datetime.now(timezone.utc).replace(microsecond=0)).strftime("%H:%M")},
     ]}
 
 
@@ -632,7 +637,7 @@ async def operations_socket(websocket: WebSocket) -> None:
                 "at": datetime.now(timezone.utc).isoformat(),
                 "active_findings": sum(dashboard_data["severity_counts"].values()),
                 "scan_count": dashboard_data["scan_count"],
-                "agent": "Sentinel",
+                "agent": "Monitor Agent",
             })
             await asyncio.sleep(5)
     except Exception:

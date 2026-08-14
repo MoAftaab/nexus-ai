@@ -21,7 +21,7 @@ export function Outcomes({ outcomes, onSelectAnomaly }) {
   const roi = outcomes?.roi
   const items = outcomes?.items || []
   return <div className="page outcomes-page">
-    <section className="page-lead"><div><span className="eyebrow"><HandCoins size={14} /> Value ledger</span><h2>What NexusAI has saved you.</h2><p>Every human-approved control and every ingested document lands here with its measurable effect, so the value of each decision stays visible and auditable.</p></div>
+    <section className="page-lead"><div><span className="eyebrow"><HandCoins size={14} /> Value ledger</span><h2>What Warehouse Control Tower AI has saved you.</h2><p>Every human-approved control and every ingested document lands here with its measurable effect, so the value of each decision stays visible and auditable.</p></div>
       <div className="leaderboard-total"><span>Value protected</span><strong>{currency(summary?.value_protected || 0)}</strong></div></section>
     <section className="outcome-stats">
       <div className="outcome-stat card-surface"><ShieldCheck size={17} /><div><strong>{summary?.anomalies_resolved ?? 0}</strong><span>Cascades resolved</span></div></div>
@@ -36,8 +36,8 @@ export function Outcomes({ outcomes, onSelectAnomaly }) {
       <p className="roi-note">{roi.note}</p>
     </section>}
     <section className="day-in-life">
-      <article className="card-surface life-card without"><div className="life-head"><UserX size={16} /><h3>The same error, without Nexus</h3></div><ol>{dayInLife.without.map((line, index) => <li key={index}>{line}</li>)}</ol></article>
-      <article className="card-surface life-card with"><div className="life-head"><UserCheck size={16} /><h3>With Nexus watching</h3></div><ol>{dayInLife.with.map((line, index) => <li key={index}>{line}</li>)}</ol></article>
+      <article className="card-surface life-card without"><div className="life-head"><UserX size={16} /><h3>The same error, without Control Tower</h3></div><ol>{dayInLife.without.map((line, index) => <li key={index}>{line}</li>)}</ol></article>
+      <article className="card-surface life-card with"><div className="life-head"><UserCheck size={16} /><h3>With Warehouse Control Tower watching</h3></div><ol>{dayInLife.with.map((line, index) => <li key={index}>{line}</li>)}</ol></article>
     </section>
     {items.length === 0
       ? <section className="card-surface empty-state"><Sparkles size={22} /><h3>No outcomes recorded yet</h3><p>Approve a recommended control from any finding, or ingest a document — the result and its value will appear here.</p></section>

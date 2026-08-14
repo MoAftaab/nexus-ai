@@ -1,4 +1,5 @@
 import { Activity, BookOpen, Bot, Cpu, FileClock, FileSearch, GitFork, GitPullRequest, HandCoins, KeyRound, LayoutDashboard, LogOut, Radar, Scale, ShieldCheck, X } from 'lucide-react'
+import { VwLogo } from './VwLogo'
 
 const navigation = [
   { id: 'command', label: 'Command center', icon: LayoutDashboard },
@@ -19,8 +20,8 @@ export function Sidebar({ activePage, onNavigate, alertCount = 0, onClose, princ
   return <aside className="sidebar">
     <button className="sidebar-close" onClick={onClose} aria-label="Close navigation"><X size={19} /></button>
     <button className="brand" onClick={() => onNavigate('home')} aria-label="Go to landing page">
-      <span className="brand-mark"><span /><span /><span /></span>
-      <span><strong>Nexus</strong><em>AI</em></span>
+      <VwLogo size={30} className="brand-vw-logo" />
+      <span><strong>Warehouse Control Tower</strong><em>AI</em></span>
     </button>
     <div className="workspace-switcher"><span className="workspace-dot" />{principal?.permitted_sites?.length === 1 ? principal.permitted_sites[0] : 'Multi-site'} workspace <span className="switcher-chevron">⌄</span></div>
     <nav className="main-nav" aria-label="Primary navigation">
@@ -32,7 +33,7 @@ export function Sidebar({ activePage, onNavigate, alertCount = 0, onClose, princ
     </nav>
     <div className="sidebar-bottom">
       <div className="system-pill"><ShieldCheck size={16} /><span>Secure workspace</span></div>
-      <div className="operator"><div className="avatar">{principal?.display_name?.split(' ').map((word) => word[0]).slice(0, 2).join('') || 'NA'}</div><div><strong>{principal?.display_name || 'Nexus operator'}</strong><span>{principal?.role?.replaceAll('_', ' ') || 'Workspace user'}</span></div><button aria-label="Sign out" onClick={onSignOut}><LogOut size={15} /></button></div>
+      <div className="operator"><div className="avatar">{principal?.display_name?.split(' ').map((word) => word[0]).slice(0, 2).join('') || 'CT'}</div><div><strong>{principal?.display_name || 'Control Tower operator'}</strong><span>{principal?.role?.replaceAll('_', ' ') || 'Workspace user'}</span></div><button aria-label="Sign out" onClick={onSignOut}><LogOut size={15} /></button></div>
     </div>
   </aside>
 }

@@ -45,16 +45,28 @@ pageInfo.policy = ['Access & policy', 'Seeded identities, site scopes, and routi
 export default function App() {
   const [page, setPage] = useState(() => window.location.hash.slice(1) || 'home')
   const [principal, setPrincipal] = useState(() => session()?.user || null)
+  const [theme, setTheme] = useState(() => {
+    try { return window.localStorage.getItem('nexusai.theme') || 'default' } catch { return 'default' }
+  })
   const [dashboard, setDashboard] = useState(null); const [anomalies, setAnomalies] = useState([]); const [graph, setGraph] = useState(null)
   const [agentData, setAgentData] = useState(null); const [reconciliation, setReconciliation] = useState(null); const [documentData, setDocumentData] = useState(null); const [alerts, setAlerts] = useState([]); const [outcomeData, setOutcomeData] = useState(null)
   const [loading, setLoading] = useState(true); const [error, setError] = useState(''); const [drawer, setDrawer] = useState(null); const [applying, setApplying] = useState(false); const [scanning, setScanning] = useState(false); const [toast, setToast] = useState(''); const [sidebarOpen, setSidebarOpen] = useState(false); const [pulse, setPulse] = useState(null); const [tourOpen, setTourOpen] = useState(false); const [bellOpen, setBellOpen] = useState(false); const [notificationOpen, setNotificationOpen] = useState(false); const [workflowData, setWorkflowData] = useState(null); const [changeRequests, setChangeRequests] = useState([]); const [notifications, setNotifications] = useState([]); const [changeFocus, setChangeFocus] = useState(null)
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+    try { window.localStorage.setItem('nexusai.theme', theme) } catch { /* ignore */ }
+  }, [theme])
+
+  const toggleTheme = useCallback(() => {
+    setTheme((curr) => (curr === 'vw' ? 'default' : 'vw'))
+  }, [])
 
   const loadCore = useCallback(async () => {
     setLoading(true); setError('')
     try {
       const [nextDashboard, nextAnomalies, nextGraph, nextAgents, nextReconciliation, nextDocuments, nextAlerts, nextOutcomes, nextWorkflow, nextChanges, nextNotifications] = await Promise.all([api.dashboard(), api.anomalies(), api.graph(), api.agents(), api.reconciliation(), api.documents(), api.alerts(), api.outcomes(), principal ? api.workflowSummary().catch(() => null) : Promise.resolve(null), principal ? api.changes().catch(() => ({ items: [] })) : Promise.resolve({ items: [] }), principal ? api.notifications().catch(() => ({ items: [] })) : Promise.resolve({ items: [] })])
       setDashboard(nextDashboard); setAnomalies(nextAnomalies.items); setGraph(nextGraph); setAgentData(nextAgents); setReconciliation(nextReconciliation); setDocumentData(nextDocuments); setAlerts(nextAlerts.items); setOutcomeData(nextOutcomes); setWorkflowData(nextWorkflow); setChangeRequests(nextChanges.items || []); setNotifications(nextNotifications.items || [])
-    } catch (cause) { setError(`NexusAI could not reach its operations API. ${cause.message}`) } finally { setLoading(false) }
+    } catch (cause) { setError(`Warehouse Control Tower AI could not reach its operations API. ${cause.message}`) } finally { setLoading(false) }
   }, [principal])
   const refreshFromEvent = useCallback(async (message) => {
     if (!['action_applied', 'scan_complete', 'document_ingested', 'approval_decided', 'change_applied', 'change_verified', 'approval_stage_activated', 'change_submitted', 'change_rejected', 'change_returned', 'change_rollback', 'change_cancelled'].includes(message.type)) return
@@ -146,12 +158,12 @@ export default function App() {
   const currentRequest = changeRequests.find((item) => String(item.status).startsWith('awaiting_')) || changeRequests[0]
   const fallbackWorkflowPreview = !currentRequest && openAlerts[0] ? { severity: openAlerts[0].severity, impact_euros: openAlerts[0].impact, title: openAlerts[0].title } : null
   // The landing page owns the full viewport — no sidebar, topbar or drawers.
-  if (page === 'home') return <Landing onEnter={() => navigate(principal ? 'command' : 'signin')} />
+  if (page === 'home') return <Landing onEnter={() => navigate(principal ? 'command' : 'signin')} theme={theme} onToggleTheme={toggleTheme} />
   if (page === 'signin' || !principal) return <SignIn onSignedIn={(user) => { setPrincipal(user); navigate('command') }} />
   return <div className="app-shell">
     {sidebarOpen && <div className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} aria-hidden="true" />}
     <div className={`sidebar-wrap ${sidebarOpen ? 'open' : ''}`}><Sidebar activePage={page} onNavigate={navigate} alertCount={openAlerts.length} onClose={() => setSidebarOpen(false)} principal={principal} onSignOut={async () => { await api.signOut().catch(() => null); clearSession(); setPrincipal(null); navigate('signin') }} /></div>
-    <main className="main-shell"><Topbar title={title} subtitle={subtitle} onMenu={() => setSidebarOpen((open) => !open)} onTour={() => setTourOpen(true)} onBell={() => setBellOpen((open) => !open)} onNotifications={() => setNotificationOpen((open) => !open)} escalationCount={escalationCount} notificationCount={notifications.filter((item) => !item.read).length} />{pulse && <div className="realtime-indicator"><Wifi size={13} />Mesh live · {pulse.active_findings} active signals</div>}<div className="global-approval-flow"><ApprovalHierarchy compact request={currentRequest} preview={fallbackWorkflowPreview} onOpenLedger={() => navigate('changes')} /></div>
+    <main className="main-shell"><Topbar title={title} subtitle={subtitle} theme={theme} onToggleTheme={toggleTheme} onMenu={() => setSidebarOpen((open) => !open)} onTour={() => setTourOpen(true)} onBell={() => setBellOpen((open) => !open)} onNotifications={() => setNotificationOpen((open) => !open)} escalationCount={escalationCount} notificationCount={notifications.filter((item) => !item.read).length} />{pulse && <div className="realtime-indicator"><Wifi size={13} />Mesh live · {pulse.active_findings} active signals</div>}<div className="global-approval-flow"><ApprovalHierarchy compact request={currentRequest} preview={fallbackWorkflowPreview} onOpenLedger={() => navigate('changes')} /></div>
       {loading ? <div className="app-loading"><div className="loading-orbit"><LoaderCircle className="spin" size={31} /></div><h2>Warming the operational twin</h2><p>Loading specialist-agent context and synthetic logistics signals…</p></div> : error ? <div className="connection-error"><AlertTriangle size={25} /><h2>Operations API unavailable</h2><p>{error}</p><button className="primary-button" onClick={loadCore}><RefreshCw size={16} />Try again</button></div> : content}
     </main>
     <AnomalyDrawer anomaly={drawer} onClose={() => setDrawer(null)} onApply={applyAction} applying={applying} />

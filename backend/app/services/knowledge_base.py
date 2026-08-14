@@ -115,6 +115,12 @@ def retrieve_markdown(query: str, limit: int = 4, max_chars: int = 6000) -> list
 # ---------------------------------------------------------------------------
 
 _ROLE_PRIORITIES: dict[str, dict[str, int]] = {
+    "Monitor Agent": {"operational_brief.md": 3, "control_playbook.md": 0},
+    "Investigator Agent": {"operational_brief.md": 2, "control_playbook.md": 1},
+    "Advisor Agent": {"operational_brief.md": 3, "control_playbook.md": 2},
+    "Approval Agent": {"operational_brief.md": 1, "control_playbook.md": 3},
+    "Audit Agent": {"operational_brief.md": 2, "control_playbook.md": 2},
+    "Copilot Agent": {"operational_brief.md": 3, "control_playbook.md": 3},
     "Sentinel": {"operational_brief.md": 3, "control_playbook.md": 0},
     "Correlator": {"operational_brief.md": 2, "control_playbook.md": 1},
     "Cascade": {"operational_brief.md": 3, "control_playbook.md": 1},

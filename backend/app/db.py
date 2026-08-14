@@ -208,11 +208,15 @@ class NotificationModel(Base):
 
 class Repository:
     def __init__(self, settings: Settings):
-        connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
+        connect_args = {"check_same_thread": False, "timeout": 30.0} if settings.database_url.startswith("sqlite") else {}
         self.engine = create_engine(settings.database_url, future=True, pool_pre_ping=True, connect_args=connect_args)
         self.sessions = sessionmaker(bind=self.engine, expire_on_commit=False, class_=Session)
 
     def initialize(self) -> None:
+        if self.engine.url.drivername.startswith("sqlite"):
+            with self.engine.begin() as conn:
+                conn.execute(text("PRAGMA journal_mode=WAL;"))
+                conn.execute(text("PRAGMA busy_timeout=30000;"))
         Base.metadata.create_all(self.engine)
         # Existing demo databases predate the governance columns. They are
         # additive nullable fields, so add them in place without touching any

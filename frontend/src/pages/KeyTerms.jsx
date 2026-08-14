@@ -6,7 +6,7 @@ const GROUPS = [
     id: 'systems',
     icon: Boxes,
     title: 'The systems we watch',
-    intro: 'A warehouse never runs on one system. Each keeps its own copy of the truth — and NexusAI exists because those copies drift apart.',
+    intro: 'A warehouse never runs on one system. Each keeps its own copy of the truth — and Warehouse Control Tower AI exists because those copies drift apart.',
     terms: [
       { term: 'ERP', full: 'Enterprise Resource Planning', simple: 'The company’s central business system — purchasing, finance, planning. Thinks in orders and money.', here: 'One of the three "truths" we cross-check. When ERP and WMS disagree on stock or weight, that’s a finding.' },
       { term: 'WMS', full: 'Warehouse Management System', simple: 'Runs the physical warehouse: which bin holds what, who picks what, in what order. Thinks in bins and scans.', here: 'Usually the system closest to physical reality — but not immune to bad master data.' },
@@ -69,7 +69,7 @@ const GROUPS = [
     terms: [
       { term: 'SAP MARD', full: 'Material Stock at Storage Location', simple: 'The SAP stock view that records how much of a material sits at each storage location.', here: 'The SAP ERP tab in Reconciliation shows the live MARD fields alongside WMS, ERP, TMS, and count values.' },
       { term: 'Plant 1400', full: 'VW Kassel Distribution Center', simple: 'The Kassel DC plant code used by the seeded SAP dataset.', here: 'Every real SAP anchor record is tied to plant 1400 and instance Kassel.' },
-      { term: 'Fiscal period desynchronization', full: null, simple: 'An ERP material record is still in a prior fiscal year, so period close and goods movements can be blocked.', here: 'Nexus groups FY2022–FY2025 records by severity and exposes the affected storage locations.' },
+      { term: 'Fiscal period desynchronization', full: null, simple: 'An ERP material record is still in a prior fiscal year, so period close and goods movements can be blocked.', here: 'Warehouse Control Tower AI groups FY2022–FY2025 records by severity and exposes the affected storage locations.' },
       { term: 'Storage location fragmentation', full: null, simple: 'One material is spread across many zero-stock locations, bloating MRP and increasing picking error risk.', here: 'The fragmentation detector flags more than 15 zero-stock storage locations for one material.' },
       { term: 'Physical inventory blocking', full: null, simple: 'A SAP flag that prevents goods movement while a count is unposted or under review.', here: 'Unposted count records are grouped into a physical-inventory audit finding.' },
       { term: 'Deletion flag (LVORM)', full: null, simple: 'The master-data marker that retires a material/storage location from normal use.', here: 'A deleted location with active stock is escalated and routed through governed change control.' },
@@ -97,7 +97,7 @@ export function KeyTerms() {
         {terms.map((item) => <article key={item.term} className="term-card card-surface">
           <div className="term-head"><strong>{item.term}</strong>{item.full && <small>{item.full}</small>}</div>
           <p className="term-simple">{item.simple}</p>
-          <p className="term-here"><b>In NexusAI:</b> {item.here}</p>
+          <p className="term-here"><b>In Control Tower AI:</b> {item.here}</p>
         </article>)}
       </div>
     </section>)}

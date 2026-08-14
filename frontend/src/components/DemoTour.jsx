@@ -3,7 +3,7 @@ import { Check, ChevronRight, CloudLightning, LoaderCircle, Presentation, Rotate
 import { api } from '../api'
 
 const script = [
-  { page: 'command', title: 'Open on the money', line: '"NexusAI is watching a 72,900-record warehouse twin. Right now it sees €2.9M of exposure across 11 verified findings — before a single customer notices."' },
+  { page: 'command', title: 'Open on the money', line: '"Warehouse Control Tower AI is watching a 72,900-record warehouse twin. Right now it sees €2.9M of exposure across 11 verified findings — before a single customer notices."' },
   { page: 'cascade', title: 'Show one cascade', line: '"This single fitment conflict is €1.2M. Every edge is a modeled probability — 93% it corrupts the sequence build, 76% it reaches the line. Watch the Monte-Carlo ribbon."' },
   { page: 'cascade', title: 'Run the counterfactual', line: 'Open Scenario controls: "If we apply this control, expected exposure collapses — we quantify the fix before we commit to it." Then hit Explain this cascade for the narrated version.' },
   { page: 'agents', title: 'Ask the mesh', line: 'Ask "What needs attention first?" — five specialists cite finding IDs, then the orchestrator gives one decision. Open the handoff trace to prove it is grounded.' },

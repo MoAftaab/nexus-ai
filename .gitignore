@@ -23,3 +23,6 @@ backend/datasets/manifest.json
 *.log
 Thumbs.db
 .DS_Store
+tmp/
+claude-code-apple-skills/
+

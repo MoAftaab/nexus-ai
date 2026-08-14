@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowRight, Bot, Euro, FileSearch, GitFork, Radar, ShieldCheck, Sparkles, Waypoints } from 'lucide-react'
+import { ArrowRight, Bot, Euro, FileSearch, GitFork, Palette, Radar, ShieldCheck, Sparkles, Waypoints } from 'lucide-react'
 import { api } from '../api'
 import { currency } from '../utils'
+import { VwLogo } from '../components/VwLogo'
 
 /** Scroll-reveal without framer-motion (its installed build is broken):
  *  adds .revealed when the element enters the viewport; CSS does the rest. */
@@ -25,7 +26,8 @@ function Reveal({ as: Tag = 'div', className = '', delay = 0, children }) {
 /* echoing how one bad record propagates through the operation.             */
 /* ------------------------------------------------------------------------ */
 
-const PALETTE = ['#eed593', '#eed593', '#eed593', '#df9cc2', '#7fc7ad', '#9d94c9']
+const PALETTE_DEFAULT = ['#eed593', '#eed593', '#df9cc2', '#7fc7ad', '#9d94c9']
+const PALETTE_VW = ['#008C82', '#00A89C', '#C2FE06', '#8CBEE6', '#FAAA3C']
 
 function CascadeField() {
   const canvasRef = useRef(null)
@@ -35,6 +37,8 @@ function CascadeField() {
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     let frame; let width; let height
     const pointer = { x: 0, y: 0 }
+    const isVw = document.documentElement.getAttribute('data-theme') === 'vw'
+    const activePalette = isVw ? PALETTE_VW : PALETTE_DEFAULT
 
     const nodes = Array.from({ length: 110 }, (_, index) => {
       // Fibonacci sphere gives an even, organic distribution.
@@ -48,7 +52,7 @@ function CascadeField() {
         y: y * radius * 0.86,
         z: Math.sin(theta) * radiusAt * radius,
         size: 1.1 + (index % 5) * 0.55,
-        color: PALETTE[index % PALETTE.length],
+        color: activePalette[index % activePalette.length],
       }
     })
     const edges = []
@@ -58,7 +62,21 @@ function CascadeField() {
         if (Math.sqrt(dx * dx + dy * dy + dz * dz) < 118) edges.push([a, b])
       }
     }
-    const pulses = Array.from({ length: 7 }, () => ({ edge: Math.floor(Math.random() * edges.length), t: Math.random(), speed: 0.004 + Math.random() * 0.007 }))
+    const pulses = Array.from({ length: 9 }, () => ({
+      edge: Math.floor(Math.random() * edges.length),
+      t: Math.random(),
+      speed: 0.005 + Math.random() * 0.008,
+    }))
+
+    // Automotive JIS sequencing conveyor packets that glide across coordinates
+    const jisPackets = Array.from({ length: 6 }, (_, index) => ({
+      progress: index / 6,
+      speed: 0.0018 + (index % 3) * 0.0006,
+      trackY: 0.25 + (index % 4) * 0.18,
+      amplitude: 28 + (index % 3) * 15,
+      frequency: 2 + (index % 2),
+      color: index % 2 === 0 ? (isVw ? '#C2FE06' : '#eed593') : (isVw ? '#008C82' : '#7fc7ad'),
+    }))
 
     const resize = () => {
       const ratio = Math.min(window.devicePixelRatio || 1, 2)
@@ -76,6 +94,7 @@ function CascadeField() {
     window.addEventListener('pointermove', onPointer)
 
     let angle = 0
+    let tick = 0
     const FOCAL = 560
     const project = (node, sin, cos, tilt) => {
       const x = node.x * cos - node.z * sin
@@ -86,16 +105,50 @@ function CascadeField() {
     }
 
     const draw = () => {
+      tick += 1
       angle += reduced ? 0 : 0.0016 + pointer.x * 0.0011
       const tilt = 0.35 + pointer.y * 0.1
       const sin = Math.sin(angle); const cos = Math.cos(angle)
       context.clearRect(0, 0, width, height)
+
+      // 1. JIS Flow-Line Conveyor Tracks (Automotive Logistics Telemetry)
+      for (const packet of jisPackets) {
+        packet.progress = (packet.progress + (reduced ? 0 : packet.speed)) % 1
+        const py = height * packet.trackY + Math.sin(packet.progress * Math.PI * 2 * packet.frequency + tick * 0.02) * packet.amplitude
+        const px = packet.progress * (width + 100) - 50
+        
+        // Track line
+        context.strokeStyle = isVw ? 'rgba(0, 140, 130, 0.06)' : 'rgba(238, 213, 147, 0.04)'
+        context.lineWidth = 1
+        context.beginPath()
+        context.moveTo(0, height * packet.trackY)
+        context.quadraticCurveTo(width * 0.5, height * packet.trackY + packet.amplitude, width, height * packet.trackY)
+        context.stroke()
+
+        // Glowing packet pip
+        const pGlow = context.createRadialGradient(px, py, 0, px, py, 12)
+        pGlow.addColorStop(0, packet.color)
+        pGlow.addColorStop(0.3, isVw ? 'rgba(194, 254, 6, 0.4)' : 'rgba(238, 213, 147, 0.3)')
+        pGlow.addColorStop(1, 'rgba(0, 0, 0, 0)')
+        context.fillStyle = pGlow
+        context.beginPath()
+        context.arc(px, py, 12, 0, Math.PI * 2)
+        context.fill()
+        context.fillStyle = '#ffffff'
+        context.beginPath()
+        context.arc(px, py, 1.8, 0, Math.PI * 2)
+        context.fill()
+      }
+
+      // 2. 3D Twin Network Sphere
       const projected = nodes.map((node) => project(node, sin, cos, tilt))
       for (const [a, b] of edges) {
         const pa = projected[a]; const pb = projected[b]
         const depth = Math.min(pa.scale, pb.scale)
-        context.strokeStyle = `rgba(238, 213, 147, ${0.05 + depth * 0.1})`
-        context.lineWidth = depth * 0.8
+        context.strokeStyle = isVw
+          ? `rgba(0, 140, 130, ${0.08 + depth * 0.14})`
+          : `rgba(238, 213, 147, ${0.05 + depth * 0.1})`
+        context.lineWidth = depth * 0.9
         context.beginPath(); context.moveTo(pa.sx, pa.sy); context.lineTo(pb.sx, pb.sy); context.stroke()
       }
       for (const pulse of pulses) {
@@ -105,10 +158,11 @@ function CascadeField() {
         const pa = projected[a]; const pb = projected[b]
         const px = pa.sx + (pb.sx - pa.sx) * pulse.t
         const py = pa.sy + (pb.sy - pa.sy) * pulse.t
-        const glow = context.createRadialGradient(px, py, 0, px, py, 7)
-        glow.addColorStop(0, 'rgba(255, 236, 189, .9)'); glow.addColorStop(1, 'rgba(255, 236, 189, 0)')
+        const glow = context.createRadialGradient(px, py, 0, px, py, 8)
+        glow.addColorStop(0, isVw ? 'rgba(194, 254, 6, 0.95)' : 'rgba(255, 236, 189, 0.9)')
+        glow.addColorStop(1, 'rgba(0, 0, 0, 0)')
         context.fillStyle = glow
-        context.beginPath(); context.arc(px, py, 7, 0, Math.PI * 2); context.fill()
+        context.beginPath(); context.arc(px, py, 8, 0, Math.PI * 2); context.fill()
       }
       for (let index = 0; index < nodes.length; index += 1) {
         const point = projected[index]
@@ -211,7 +265,7 @@ function AgentMeshField() {
       context.fillStyle = '#f7ecc9'
       context.beginPath(); context.arc(cx, cy - 8, pulse * 0.55, 0, Math.PI * 2); context.fill()
       context.font = '700 11px "DM Mono", monospace'; context.textAlign = 'center'
-      context.fillStyle = '#f2e7c2'; context.fillText('NEXUS', cx, cy + 34)
+      context.fillStyle = '#f2e7c2'; context.fillText('CONTROL TOWER', cx, cy + 34)
       context.font = '500 8px "DM Mono", monospace'; context.fillStyle = '#93896f'
       context.fillText('orchestrator · synthesis', cx, cy + 45)
       frame = window.requestAnimationFrame(draw)
@@ -326,7 +380,7 @@ const FEATURES = [
 
 const PIPELINE = ['Detect', 'Trace', 'Quantify', 'Approve', 'Prove']
 
-export function Landing({ onEnter }) {
+export function Landing({ onEnter, theme = 'default', onToggleTheme }) {
   const [exposure, setExposure] = useState(null)
   const [mlModel, setMlModel] = useState(null)
   useEffect(() => {
@@ -339,17 +393,28 @@ export function Landing({ onEnter }) {
   const selected = candidates.find((candidate) => candidate.selected) || candidates[0]
   return <div className="landing">
     <nav className="landing-nav">
-      <span className="brand landing-brand"><span className="brand-mark"><span /><span /><span /></span><span><strong>Nexus</strong><em>AI</em></span></span>
-      <button className="soft-button" onClick={onEnter}>Enter dashboard <ArrowRight size={14} /></button>
+      <span className="brand landing-brand"><VwLogo size={32} className="landing-vw-logo" /><span><strong>Warehouse Control Tower</strong><em>AI</em></span></span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <button
+          className={`theme-toggle-btn ${theme === 'vw' ? 'is-vw' : ''}`}
+          onClick={onToggleTheme}
+          title={theme === 'vw' ? 'Switch to Default Theme' : 'Switch to VW Neon Green Theme'}
+          aria-label="Toggle Theme"
+        >
+          <Palette size={14} />
+          <span>{theme === 'vw' ? 'VW Neon' : 'Default UI'}</span>
+        </button>
+        <button className="soft-button" onClick={onEnter}>Enter dashboard <ArrowRight size={14} /></button>
+      </div>
     </nav>
 
     <header className="landing-hero">
       <CascadeField />
       <div className="landing-hero-copy">
         <Reveal as="span" className="live-chip"><Sparkles size={12} /> Multi-agent supply-chain intelligence</Reveal>
-        <Reveal as="h1" delay={80}>One wrong number can stop an <em>assembly line.</em><br />Nexus finds it first.</Reveal>
+        <Reveal as="h1" delay={80}>One wrong number can stop an <em>assembly line.</em><br />Warehouse Control Tower AI finds it first.</Reveal>
         <Reveal as="p" delay={160}>
-          NexusAI watches a 72,900-record warehouse twin across ERP, WMS and TMS, detects the data drift no human would catch in time,
+          Warehouse Control Tower AI watches a 72,900-record warehouse twin across ERP, WMS and TMS, detects the data drift no human would catch in time,
           traces the cascade to its euro consequence — and fixes the source, with a person approving every change.
         </Reveal>
         <Reveal className="landing-cta" delay={240}>
@@ -393,7 +458,7 @@ export function Landing({ onEnter }) {
       <Reveal className="landing-section-head centered">
         <span className="eyebrow"><Bot size={13} /> Multi-LLM architecture</span>
         <h2>Five specialists <em>argue from evidence.</em> One orchestrator decides.</h2>
-        <p>Each GPT-5.4 mini specialist runs with its own persona, curated context and calibrated temperature — precise for evidence roles, warmer for reasoning roles. Their structured handoffs stream into the Nexus orchestrator, which synthesizes one grounded operator decision. Every claim must cite a finding ID; unsourced claims are a system failure.</p>
+        <p>Each GPT-5.4 mini specialist runs with its own persona, curated context and calibrated temperature — precise for evidence roles, warmer for reasoning roles. Their structured handoffs stream into the Control Tower orchestrator, which synthesizes one grounded operator decision. Every claim must cite a finding ID; unsourced claims are a system failure.</p>
       </Reveal>
       <Reveal className="mesh-stage" delay={120}><AgentMeshField /></Reveal>
       <Reveal className="mesh-facts" delay={200}>
@@ -437,8 +502,8 @@ export function Landing({ onEnter }) {
     <Reveal as="section" className="landing-closing">
       <h2>The demo is live. The data is <em>really</em> dirty.</h2>
       <p>Every finding on the board was discovered, not scripted — inject a fresh incident yourself and watch the mesh catch it.</p>
-      <button className="primary-button landing-primary" onClick={onEnter}>Open NexusAI <ArrowRight size={16} /></button>
-      <footer><span>NexusAI · VW Wolfsburg DC operational twin · human-approved operations</span></footer>
+      <button className="primary-button landing-primary" onClick={onEnter}>Open Control Tower AI <ArrowRight size={16} /></button>
+      <footer><span>Warehouse Control Tower AI · VW Wolfsburg DC operational twin · human-approved operations</span></footer>
     </Reveal>
   </div>
 }

@@ -14,7 +14,7 @@ export function CommandCenter({ dashboard, workflow, anomalies, graph, onNavigat
   const critical = useMemo(() => open.filter((item) => item.severity === 'critical'), [open])
   return <div className="page command-page">
     <section className="command-hero">
-      <div className="hero-copy"><span className="live-chip"><Radio size={13} />Live operational twin</span><h2>Keep every part of the line <em>in flow.</em></h2><p>Nexus maps small data defects to their downstream production impact before the shift feels them.</p></div>
+      <div className="hero-copy"><span className="live-chip"><Radio size={13} />Live operational twin</span><h2>Keep every part of the line <em>in flow.</em></h2><p>Warehouse Control Tower AI maps small data defects to their downstream production impact before the shift feels them.</p></div>
       <div className="hero-actions"><span className="scan-state"><span className="pulse-dot" />Last scan {dashboard?.last_scan ? timeAgo(dashboard.last_scan) : 'now'}</span><button className="primary-button" onClick={onScan} disabled={scanning}><ScanLine size={16} />{scanning ? 'Scanning mesh…' : 'Run intelligence scan'}</button></div>
     </section>
     <section className={`metrics-grid ${scanning ? 'scanning' : ''}`}>{dashboard?.metrics?.map((metric, index) => <MetricCard metric={metric} index={index} scanning={scanning} key={metric.label} />)}{scanning && <span className="radar-sweep" aria-hidden="true" />}</section>
