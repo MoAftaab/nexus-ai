@@ -41,6 +41,8 @@ export function WaltAssistant({
   currentPage = 'command',
   dashboard,
   onChatStream,
+  onWaltConfirm,
+  onWaltResolve,
   requestId,
   requestActions = [],
   riskCount = 0,
@@ -72,7 +74,7 @@ export function WaltAssistant({
   const roamTimerRef = useRef(null)
   const roamFinishRef = useRef(null)
   const openRef = useRef(open)
-  const chat = useWaltChat(onChatStream, open, requestId)
+  const chat = useWaltChat(onChatStream, onWaltResolve, onWaltConfirm, open, requestId)
   const contextCards = useMemo(() => buildWaltContextCards(dashboard, anomalies), [dashboard, anomalies])
 
   useEffect(() => { openRef.current = open }, [open])
@@ -432,6 +434,8 @@ export function WaltAssistant({
       loading={chat.loading}
       messages={chat.messages}
       onClearChat={chat.clearChat}
+      onConfirmAction={chat.confirmAction}
+      onDismissAction={chat.dismissAction}
       onClose={closePanel}
       onInput={(value) => { chat.setInput(value); markActive() }}
       onInputBlur={() => setInputFocused(false)}

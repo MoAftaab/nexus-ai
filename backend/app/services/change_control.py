@@ -902,9 +902,9 @@ def workflow_summary(repo: Repository, user: dict[str, Any]) -> dict[str, Any]:
         "rollback": "Request a safeguarded verified rollback",
     }
     question_starters = {
-        "operator": ["What needs attention first?", "What evidence is missing from my selected request?", "Who owns the next approval stage?"],
-        "lead": ["Which assigned request needs my decision first?", "Summarize the evidence for my selected request.", "Can this request be escalated from my role?"],
-        "manager": ["Which assigned decision protects the most value?", "Show the separation-of-duties check.", "What is safe to escalate from my role?"],
+        "operator": ["Who is my manager?", "What is my role and site scope?", "Notify the next approver for my selected request."],
+        "lead": ["What needs my approval?", "What is my role and site scope?", "Escalate my selected request."],
+        "manager": ["What needs my approval?", "Who is my escalation owner?", "Escalate my selected request."],
         "quality_compliance": ["Which regulated evidence needs review?", "Show the compliance route for this request.", "What details should I request before deciding?"],
         "director": ["Which final approval carries the highest exposure?", "What can I approve right now?", "Which verified request is eligible for rollback?"],
         "auditor": ["Show the selected request's named decision trail.", "Which approvals have complete timestamps?", "What is included in the Excel audit export?"],
@@ -927,10 +927,10 @@ def workflow_summary(repo: Repository, user: dict[str, Any]) -> dict[str, Any]:
             "permitted_actions": [{"id": action, "label": action_labels.get(action, action.replace("_", " ").title())} for action in sorted(action_set) if action in action_labels],
             "escalation": {
                 "available": "prepare_escalation" in action_set,
-                "mode": "prepare_only",
-                "detail": "WALT can prepare a role-scoped escalation brief; a human must confirm and send it." if "prepare_escalation" in action_set else "No selected or visible request currently permits escalation preparation for this role.",
+                "mode": "confirm_to_send",
+                "detail": "WALT can prepare a role-scoped escalation and send the in-app notification after your explicit confirmation." if "prepare_escalation" in action_set else "No selected or visible request currently permits escalation preparation for this role.",
             },
             "question_starters": question_starters.get(role, ["What needs attention first?"]),
-            "disclaimer": "WALT explains and prepares. State-changing actions still require the exact authorized human control.",
+            "disclaimer": "WALT answers from verified identity and workflow data. Notifications require confirmation; approval decisions stay with the exact assigned human.",
         },
     }

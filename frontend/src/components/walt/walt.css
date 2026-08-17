@@ -634,6 +634,58 @@
 [data-theme='light'] .walt-chat-form input { border-color: rgba(0, 39, 51, .5); color: #002733; background: #FFFFFF; }
 [data-theme='light'] .walt-chat-form input::placeholder { color: rgba(0, 39, 51, .72); opacity: 1; }
 
+.walt-command-choices { display: grid; gap: 6px; margin-top: 9px; }
+.walt-command-choices button {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-left: 3px solid #008C82;
+  border-radius: 8px;
+  color: var(--text-1);
+  background: color-mix(in srgb, #8CBEE6 9%, var(--dsb-shallow));
+  text-align: left;
+}
+.walt-command-choices button:hover { border-color: #008C82; transform: translateX(2px); }
+.walt-command-choices span { font: 800 8px/1.2 'DM Mono', monospace; letter-spacing: .04em; }
+.walt-command-choices small { overflow: hidden; color: var(--text-2); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+
+.walt-action-card {
+  margin-top: 10px;
+  overflow: hidden;
+  border: 1.5px solid #008C82;
+  border-radius: 11px;
+  color: var(--text-1);
+  background: color-mix(in srgb, #008C82 7%, var(--dsb-shallow));
+  box-shadow: 0 8px 22px rgba(0, 39, 51, .12);
+}
+.walt-action-card > header { display: flex; align-items: center; gap: 8px; padding: 9px 10px; border-bottom: 1px solid var(--border); background: color-mix(in srgb, #008C82 11%, var(--dsb-shallow)); }
+.walt-action-card > header > span { display: grid; width: 27px; height: 27px; place-items: center; border-radius: 8px; color: #FFFFFF; background: #008C82; }
+.walt-action-card > header div { display: grid; gap: 2px; }
+.walt-action-card > header strong { font-size: 9px; }
+.walt-action-card > header small { color: var(--text-3); font: 600 7px/1.2 'DM Mono', monospace; text-transform: uppercase; }
+.walt-action-card dl { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; margin: 0; padding: 1px; background: var(--border); }
+.walt-action-card dl > div { min-width: 0; padding: 8px 9px; background: var(--dsb-shallow); }
+.walt-action-card dt { display: flex; align-items: center; gap: 4px; margin-bottom: 3px; color: var(--text-3); font: 600 7px/1.2 'DM Mono', monospace; text-transform: uppercase; }
+.walt-action-card dd { overflow: hidden; margin: 0; color: var(--text-1); font-size: 8px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+.walt-action-controls { display: grid; grid-template-columns: 1fr auto; gap: 7px; padding: 9px; }
+.walt-action-controls button { min-height: 32px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: 8px; color: var(--text-1); background: transparent; font-size: 8px; font-weight: 800; }
+.walt-action-controls .confirm { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-color: #008C82; color: #FFFFFF; background: #008C82; }
+.walt-action-controls .confirm:hover:not(:disabled) { background: color-mix(in srgb, #008C82 86%, #002733); }
+.walt-action-controls button:disabled { opacity: .52; cursor: wait; }
+.walt-action-result { display: flex; align-items: center; gap: 7px; padding: 10px; color: #64A844; font-size: 8px; font-weight: 800; }
+.walt-action-result.is-muted { color: var(--text-3); }
+.walt-action-failure { margin: 0; padding: 0 10px 9px; color: #DA0C1F; font-size: 8px; }
+.walt-action-card[data-status='confirmed'] { border-color: #64A844; background: color-mix(in srgb, #64A844 8%, var(--dsb-shallow)); }
+.walt-action-card[data-status='failed'] { border-color: #DA0C1F; }
+[data-theme='dark'] .walt-action-card dl > div { background: #002733; }
+[data-theme='dark'] .walt-action-card { box-shadow: 0 8px 24px rgba(0, 0, 0, .24), 0 0 16px rgba(0, 140, 130, .08); }
+
+@media (max-width: 520px) {
+  .walt-action-card dl { grid-template-columns: 1fr; }
+  .walt-action-controls { grid-template-columns: 1fr; }
+}
+
 @keyframes walt-atlas-play { to { background-position: var(--walt-frame-end) var(--walt-atlas-row); } }
 @keyframes walt-float { 0%, 100% { transform: translateY(2px) rotate(-.7deg); } 50% { transform: translateY(-5px) rotate(.7deg); } }
 @keyframes walt-alive-dance {

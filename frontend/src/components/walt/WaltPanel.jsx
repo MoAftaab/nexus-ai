@@ -38,6 +38,8 @@ export function WaltPanel({
   messages,
   onClearChat,
   onClose,
+  onConfirmAction,
+  onDismissAction,
   onInput,
   onInputBlur,
   onInputFocus,
@@ -103,7 +105,14 @@ export function WaltPanel({
     </details>}
 
     <div className="walt-conversation" ref={messagesRef}>
-      {messages.map((message, index) => <WaltMessage key={`${message.role}-${index}`} message={message} loading={loading && index === messages.length - 1} />)}
+      {messages.map((message, index) => <WaltMessage
+        key={message.id || `${message.role}-${index}`}
+        message={message}
+        loading={loading && index === messages.length - 1}
+        onChoice={(prompt) => onSend(prompt)}
+        onConfirmAction={onConfirmAction}
+        onDismissAction={onDismissAction}
+      />)}
     </div>
 
     {messages.length === 1 && <div className="walt-quick-questions"><span className="walt-quick-label">Try asking WALT</span>

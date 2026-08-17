@@ -175,6 +175,8 @@ export default function App() {
       currentPage={visiblePage}
       dashboard={dashboard}
       onChatStream={api.chatStream}
+      onWaltResolve={api.waltResolve}
+      onWaltConfirm={api.confirmWaltAction}
       requestId={currentRequest?.request_id}
       requestActions={currentRequest?.allowed_actions || []}
       riskCount={escalationCount}

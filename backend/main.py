@@ -14,11 +14,12 @@ from sqlalchemy import select
 from app.config import get_settings
 from app.models import (
     ChatRequest, DelegationInput, DetailRequestInput, DetailResponseInput,
-    WorkflowConfirmationInput, WorkflowPreviewInput,
+    WaltCommandRequest, WorkflowConfirmationInput, WorkflowPreviewInput,
 )
 from app.services.operations import OperationsStore
 from app.services.document_parser import inspect_and_index
 from app.services.reasoner import answer_chat, stream_chat
+from app.services.walt_actions import resolve_walt_command
 from app.services.event_bus import EventBus
 from app.services.auth import can_access_site, principal_from_token, sign_in, sign_out
 from app.services.change_control import (
@@ -897,6 +898,12 @@ def _chat_with_workflow_context(request: ChatRequest, user: dict[str, object]) -
 async def chat(request: ChatRequest, authorization: str | None = Header(default=None)) -> object:
     user = current_user(authorization)
     return await answer_chat(_chat_with_workflow_context(request, user), store, settings)
+
+
+@app.post("/api/walt/resolve")
+async def walt_resolve(request: WaltCommandRequest, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    """Resolve governed WALT commands before a prompt reaches the LLM mesh."""
+    return resolve_walt_command(request.message, request.request_id, current_user(authorization), store.repository)
 
 
 @app.post("/api/chat/stream")
