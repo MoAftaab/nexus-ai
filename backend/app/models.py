@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 Severity = Literal["critical", "high", "medium", "low"]
 AnomalyStatus = Literal["open", "investigating", "resolved"]
@@ -72,14 +72,48 @@ class ChatTurn(BaseModel):
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
     history: list[ChatTurn] = Field(default_factory=list, max_length=12)
+    request_id: str | None = Field(default=None, max_length=80)
+    # Populated only by the authenticated API route from live workflow data.
+    # Any client-supplied value is overwritten before the mesh is invoked.
+    workflow_context: dict[str, object] | None = None
 
 
 class ChatResponse(BaseModel):
     answer: str
-    source: Literal["openai", "nexus_deterministic"]
+    source: Literal["openai", "operational_evidence"]
     cited_anomaly_ids: list[str]
     suggested_actions: list[str]
     agent_trace: list[dict[str, str]] = Field(default_factory=list)
+
+
+class DetailRequestInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    requested_fields: list[str] = Field(default_factory=list, max_length=20)
+    question: str = Field(default="", max_length=1000)
+    due_hours: int = Field(default=24, ge=1, le=168)
+
+
+class DetailResponseInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    response: str = Field(min_length=1, max_length=4000)
+    evidence_attachments: list[str] = Field(default_factory=list, max_length=20)
+
+
+class DelegationInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    assignee_user_id: str = Field(min_length=1, max_length=64)
+    reason: str = Field(min_length=3, max_length=1000)
+
+
+class WorkflowPreviewInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reason: str = Field(min_length=3, max_length=1000)
+    recipient_user_id: str | None = Field(default=None, max_length=64)
+
+
+class WorkflowConfirmationInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    action_id: str = Field(min_length=1, max_length=64)
 
 
 class DocumentInspection(BaseModel):

@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import os
+import tempfile
+from pathlib import Path
 
-os.environ["DATABASE_URL"] = "sqlite:///./nexus_test.db"
+test_database = Path(tempfile.gettempdir()) / f"warehouse_control_tower_pytest_{os.getpid()}.db"
+os.environ["DATABASE_URL"] = f"sqlite:///{test_database.as_posix()}"
 os.environ["DEMO_SEED"] = "1234"
 os.environ["OPENAI_API_KEY"] = ""
+os.environ["ALLOW_LEGACY_DIRECT_APPLY"] = "true"
 
 import pytest
 from fastapi.testclient import TestClient

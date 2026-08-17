@@ -41,7 +41,7 @@ Dataset seed: {data.seed}
 
 This is generated operational context. Source-system findings must be corroborated with agent evidence before an operator applies a fix.
 """
-    controls = """# NexusAI control playbook
+    controls = """# Warehouse Control Tower AI control playbook
 
 ## JIS fitment conflict
 
@@ -57,7 +57,7 @@ Do not release a batch until the required PPAP or VDA evidence is attached and q
 
 ## Human approval
 
-NexusAI can recommend a control and record its rationale. An operations owner approves each state-changing action.
+Warehouse Control Tower AI can recommend a control and record its rationale. An operations owner approves each state-changing action.
 """
     (KNOWLEDGE_DIR / "operational_brief.md").write_text(brief, encoding="utf-8")
     (KNOWLEDGE_DIR / "control_playbook.md").write_text(controls, encoding="utf-8")

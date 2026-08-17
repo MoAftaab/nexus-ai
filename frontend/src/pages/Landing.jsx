@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowRight, Bot, Euro, FileSearch, GitFork, Palette, Radar, ShieldCheck, Sparkles, Waypoints } from 'lucide-react'
+import { ArrowRight, Bot, Euro, FileSearch, GitFork, Moon, Radar, ShieldCheck, Sparkles, Sun, Waypoints } from 'lucide-react'
 import { api } from '../api'
 import { currency } from '../utils'
 import { VwLogo } from '../components/VwLogo'
@@ -26,8 +26,8 @@ function Reveal({ as: Tag = 'div', className = '', delay = 0, children }) {
 /* echoing how one bad record propagates through the operation.             */
 /* ------------------------------------------------------------------------ */
 
-const PALETTE_DEFAULT = ['#eed593', '#eed593', '#df9cc2', '#7fc7ad', '#9d94c9']
-const PALETTE_VW = ['#008C82', '#00A89C', '#C2FE06', '#8CBEE6', '#FAAA3C']
+const PALETTE_DEFAULT = ['#008C82', '#64A844', '#8CBEE6', '#C882BE', '#FAAA3C']
+const PALETTE_VW = ['#008C82', '#64A844', '#8CBEE6', '#FAAA3C', '#C882BE']
 
 function CascadeField() {
   const canvasRef = useRef(null)
@@ -37,8 +37,8 @@ function CascadeField() {
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     let frame; let width; let height
     const pointer = { x: 0, y: 0 }
-    const isVw = document.documentElement.getAttribute('data-theme') === 'vw'
-    const activePalette = isVw ? PALETTE_VW : PALETTE_DEFAULT
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark'
+    const activePalette = isDark ? PALETTE_VW : PALETTE_DEFAULT
 
     const nodes = Array.from({ length: 110 }, (_, index) => {
       // Fibonacci sphere gives an even, organic distribution.
@@ -75,7 +75,7 @@ function CascadeField() {
       trackY: 0.25 + (index % 4) * 0.18,
       amplitude: 28 + (index % 3) * 15,
       frequency: 2 + (index % 2),
-      color: index % 2 === 0 ? (isVw ? '#C2FE06' : '#eed593') : (isVw ? '#008C82' : '#7fc7ad'),
+      color: index % 2 === 0 ? '#008C82' : '#64A844',
     }))
 
     const resize = () => {
@@ -118,7 +118,7 @@ function CascadeField() {
         const px = packet.progress * (width + 100) - 50
         
         // Track line
-        context.strokeStyle = isVw ? 'rgba(0, 140, 130, 0.06)' : 'rgba(238, 213, 147, 0.04)'
+        context.strokeStyle = isDark ? 'rgba(0, 140, 130, 0.08)' : 'rgba(0, 39, 51, 0.06)'
         context.lineWidth = 1
         context.beginPath()
         context.moveTo(0, height * packet.trackY)
@@ -128,7 +128,7 @@ function CascadeField() {
         // Glowing packet pip
         const pGlow = context.createRadialGradient(px, py, 0, px, py, 12)
         pGlow.addColorStop(0, packet.color)
-        pGlow.addColorStop(0.3, isVw ? 'rgba(194, 254, 6, 0.4)' : 'rgba(238, 213, 147, 0.3)')
+        pGlow.addColorStop(0.3, isDark ? 'rgba(140, 190, 230, 0.38)' : 'rgba(0, 140, 130, 0.28)')
         pGlow.addColorStop(1, 'rgba(0, 0, 0, 0)')
         context.fillStyle = pGlow
         context.beginPath()
@@ -145,7 +145,7 @@ function CascadeField() {
       for (const [a, b] of edges) {
         const pa = projected[a]; const pb = projected[b]
         const depth = Math.min(pa.scale, pb.scale)
-        context.strokeStyle = isVw
+        context.strokeStyle = isDark
           ? `rgba(0, 140, 130, ${0.08 + depth * 0.14})`
           : `rgba(238, 213, 147, ${0.05 + depth * 0.1})`
         context.lineWidth = depth * 0.9
@@ -159,7 +159,7 @@ function CascadeField() {
         const px = pa.sx + (pb.sx - pa.sx) * pulse.t
         const py = pa.sy + (pb.sy - pa.sy) * pulse.t
         const glow = context.createRadialGradient(px, py, 0, px, py, 8)
-        glow.addColorStop(0, isVw ? 'rgba(194, 254, 6, 0.95)' : 'rgba(255, 236, 189, 0.9)')
+        glow.addColorStop(0, isDark ? 'rgba(140, 190, 230, 0.9)' : 'rgba(0, 140, 130, 0.82)')
         glow.addColorStop(1, 'rgba(0, 0, 0, 0)')
         context.fillStyle = glow
         context.beginPath(); context.arc(px, py, 8, 0, Math.PI * 2); context.fill()
@@ -187,11 +187,11 @@ function CascadeField() {
 /* ------------------------------------------------------------------------ */
 
 const SPECIALIST_ORBS = [
-  { name: 'Sentinel', role: 'Detection', temp: 0.2, color: '#8ae0d5' },
-  { name: 'Correlator', role: 'Linkage', temp: 0.4, color: '#9d94c9' },
-  { name: 'Cascade', role: 'Simulation', temp: 0.4, color: '#df9cc2' },
-  { name: 'Impact', role: 'Quantification', temp: 0.2, color: '#eed593' },
-  { name: 'Fix', role: 'Control design', temp: 0.35, color: '#7fc7ad' },
+  { name: 'Issue Monitor', role: 'Finds anomalies', temp: 0.2, color: '#008C82' },
+  { name: 'System Linker', role: 'Connects records', temp: 0.4, color: '#8CBEE6' },
+  { name: 'Impact Tracer', role: 'Follows risk', temp: 0.4, color: '#C882BE' },
+  { name: 'Value Analyst', role: 'Measures impact', temp: 0.2, color: '#FAAA3C' },
+  { name: 'Action Planner', role: 'Designs controls', temp: 0.35, color: '#64A844' },
 ]
 
 function AgentMeshField() {
@@ -249,10 +249,10 @@ function AgentMeshField() {
         context.beginPath(); context.arc(orb.sx, orb.sy, radius, 0, Math.PI * 2); context.fill()
         context.globalAlpha = 0.5 + orb.scale * 0.5
         context.font = `700 ${Math.round(10 * orb.scale)}px "DM Mono", monospace`
-        context.textAlign = 'center'; context.fillStyle = '#e8e2d0'
+        context.textAlign = 'center'; context.fillStyle = '#F5FBFC'
         context.fillText(orb.name, orb.sx, orb.sy + radius + 14 * orb.scale)
         context.font = `500 ${Math.round(8 * orb.scale)}px "DM Mono", monospace`
-        context.fillStyle = '#93896f'
+        context.fillStyle = 'rgba(140,190,230,0.6)'
         context.fillText(orb.role, orb.sx, orb.sy + radius + 25 * orb.scale)
         context.globalAlpha = 1
       }
@@ -262,11 +262,11 @@ function AgentMeshField() {
       core.addColorStop(0, 'rgba(255, 238, 190, .95)'); core.addColorStop(0.45, 'rgba(238, 213, 147, .5)'); core.addColorStop(1, 'rgba(238, 213, 147, 0)')
       context.fillStyle = core
       context.beginPath(); context.arc(cx, cy - 8, pulse * 2.6, 0, Math.PI * 2); context.fill()
-      context.fillStyle = '#f7ecc9'
+      context.fillStyle = '#FAD2AA'
       context.beginPath(); context.arc(cx, cy - 8, pulse * 0.55, 0, Math.PI * 2); context.fill()
       context.font = '700 11px "DM Mono", monospace'; context.textAlign = 'center'
-      context.fillStyle = '#f2e7c2'; context.fillText('CONTROL TOWER', cx, cy + 34)
-      context.font = '500 8px "DM Mono", monospace'; context.fillStyle = '#93896f'
+      context.fillStyle = '#FAD2AA'; context.fillText('CONTROL TOWER', cx, cy + 34)
+      context.font = '500 8px "DM Mono", monospace'; context.fillStyle = 'rgba(140,190,230,0.6)'
       context.fillText('orchestrator · synthesis', cx, cy + 45)
       frame = window.requestAnimationFrame(draw)
     }
@@ -312,7 +312,7 @@ function HaystackField({ flagged = 1 }) {
         const dot = dots[index]
         if (index === hotIndex) continue
         context.globalAlpha = 0.1 + 0.08 * Math.sin(tick * 0.02 + dot.phase)
-        context.fillStyle = '#8d8468'
+        context.fillStyle = 'rgba(0,39,51,0.5)'
         context.beginPath(); context.arc(dot.x, dot.y, 1.4, 0, Math.PI * 2); context.fill()
       }
       const hot = dots[hotIndex]
@@ -322,10 +322,10 @@ function HaystackField({ flagged = 1 }) {
         glow.addColorStop(0, 'rgba(255, 176, 122, .95)'); glow.addColorStop(1, 'rgba(255, 176, 122, 0)')
         context.globalAlpha = 1; context.fillStyle = glow
         context.beginPath(); context.arc(hot.x, hot.y, radius * 5, 0, Math.PI * 2); context.fill()
-        context.fillStyle = '#ffd9b8'
+        context.fillStyle = '#FAD2AA'
         context.beginPath(); context.arc(hot.x, hot.y, radius * 0.6, 0, Math.PI * 2); context.fill()
         context.font = '700 9px "DM Mono", monospace'; context.textAlign = 'center'
-        context.fillStyle = '#ffcf9e'
+        context.fillStyle = '#FAAA3C'
         context.fillText(`score ${flagged >= 1 ? '0.99' : '—'}`, hot.x, hot.y - 14)
       }
       context.globalAlpha = 1
@@ -373,14 +373,14 @@ const FEATURES = [
   { icon: Radar, title: 'Autonomous detection', text: '20+ statistical, rule-based and ML checks sweep ERP, WMS, TMS and count data — nothing is tagged by hand, the mesh finds the drift itself.' },
   { icon: GitFork, title: 'Cascade prediction', text: 'A dependency twin traces every finding downstream: which sequence, which dock, which line — with a modeled probability on every hop.' },
   { icon: Euro, title: 'Impact in euros', text: '1,000 Monte-Carlo trials price each cascade — expected exposure, P90 tail risk, and the counterfactual value of every proposed control.' },
-  { icon: Bot, title: 'Five-specialist reasoning', text: 'Sentinel, Correlator, Cascade, Impact and Fix each argue from evidence; an orchestrator merges their handoffs into one operator decision.' },
+  { icon: Bot, title: 'Five-specialist reasoning', text: 'The Issue Monitor, System Linker, Impact Tracer, Value Analyst, and Action Planner each check a clear part of the evidence before WALT combines the answer.' },
   { icon: FileSearch, title: 'Document intelligence', text: 'Invoices, ASNs, PPAP packets and count sheets are parsed and cross-checked against the operation — missing release evidence blocks the batch.' },
   { icon: ShieldCheck, title: 'Human-approved fixes', text: 'The AI recommends; a person approves. Source records are corrected at the origin, a rescan proves the defect is gone, and the value lands in an auditable ledger.' },
 ]
 
 const PIPELINE = ['Detect', 'Trace', 'Quantify', 'Approve', 'Prove']
 
-export function Landing({ onEnter, theme = 'default', onToggleTheme }) {
+export function Landing({ onEnter, theme = 'light', onToggleTheme }) {
   const [exposure, setExposure] = useState(null)
   const [mlModel, setMlModel] = useState(null)
   useEffect(() => {
@@ -396,13 +396,13 @@ export function Landing({ onEnter, theme = 'default', onToggleTheme }) {
       <span className="brand landing-brand"><VwLogo size={32} className="landing-vw-logo" /><span><strong>Warehouse Control Tower</strong><em>AI</em></span></span>
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
         <button
-          className={`theme-toggle-btn ${theme === 'vw' ? 'is-vw' : ''}`}
+          className={`theme-toggle-btn ${theme === 'dark' ? 'is-dark' : ''}`}
           onClick={onToggleTheme}
-          title={theme === 'vw' ? 'Switch to Default Theme' : 'Switch to VW Neon Green Theme'}
-          aria-label="Toggle Theme"
+          title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
         >
-          <Palette size={14} />
-          <span>{theme === 'vw' ? 'VW Neon' : 'Default UI'}</span>
+          {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+          <span>{theme === 'dark' ? 'Light' : 'Dark'}</span>
         </button>
         <button className="soft-button" onClick={onEnter}>Enter dashboard <ArrowRight size={14} /></button>
       </div>
@@ -458,7 +458,7 @@ export function Landing({ onEnter, theme = 'default', onToggleTheme }) {
       <Reveal className="landing-section-head centered">
         <span className="eyebrow"><Bot size={13} /> Multi-LLM architecture</span>
         <h2>Five specialists <em>argue from evidence.</em> One orchestrator decides.</h2>
-        <p>Each GPT-5.4 mini specialist runs with its own persona, curated context and calibrated temperature — precise for evidence roles, warmer for reasoning roles. Their structured handoffs stream into the Control Tower orchestrator, which synthesizes one grounded operator decision. Every claim must cite a finding ID; unsourced claims are a system failure.</p>
+        <p>Each specialist has one understandable job and its own curated evidence. Their structured handoffs stream into the WALT Coordinator, which combines them into one grounded operator decision. Every claim must cite a finding ID; unsourced claims are a system failure.</p>
       </Reveal>
       <Reveal className="mesh-stage" delay={120}><AgentMeshField /></Reveal>
       <Reveal className="mesh-facts" delay={200}>

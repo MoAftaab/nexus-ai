@@ -35,11 +35,34 @@ export const api = {
   decideChange: (id, decision, comment) => { const route = { approved: 'approve', rejected: 'reject', returned: 'return' }[decision] || decision; return request(`/api/changes/${id}/${route}`, { method: 'POST', body: JSON.stringify({ comment }) }) },
   cancelChange: (id) => request(`/api/changes/${id}/cancel`, { method: 'POST' }),
   rollbackChange: (id, comment) => request(`/api/changes/${id}/rollback`, { method: 'POST', body: JSON.stringify({ comment }) }),
+  changePermissions: (id) => request(`/api/changes/${id}/permissions`),
+  changeDetails: (id) => request(`/api/changes/${id}/details`),
+  requestChangeDetails: (id, payload) => request(`/api/changes/${id}/details`, { method: 'POST', body: JSON.stringify(payload) }),
+  respondChangeDetails: (id, detailId, payload) => request(`/api/changes/${id}/details/${detailId}/respond`, { method: 'POST', body: JSON.stringify(payload) }),
+  eligibleWorkflowRecipients: (id, kind) => request(`/api/changes/${id}/eligible-recipients?kind=${encodeURIComponent(kind)}`),
+  delegateChange: (id, payload) => request(`/api/changes/${id}/delegate`, { method: 'POST', body: JSON.stringify(payload) }),
+  previewWorkflowAction: (id, kind, payload) => request(`/api/changes/${id}/${kind}/preview`, { method: 'POST', body: JSON.stringify(payload) }),
+  confirmWorkflowAction: (id, kind, actionId) => request(`/api/changes/${id}/${kind}/confirm`, { method: 'POST', body: JSON.stringify({ action_id: actionId }) }),
   changeDiff: (id) => request(`/api/changes/${id}/diff`),
   notifications: (unreadOnly = false) => request(`/api/notifications${unreadOnly ? '?unread_only=true' : ''}`),
   markNotificationRead: (id) => request(`/api/notifications/${id}/read`, { method: 'POST' }),
   inbox: () => request('/api/inbox'),
   workflowSummary: () => request('/api/workflow/summary'),
+  audit: () => request('/api/audit'),
+  auditRequests: (params = {}) => request(`/api/audit/requests?${new URLSearchParams(Object.entries(params).filter(([, value]) => value && value !== 'all'))}`),
+  downloadAuditWorkbook: async (params = {}) => {
+    const stored = session()
+    const response = await fetch(`${API_BASE}/api/audit/export.xlsx?${new URLSearchParams(Object.entries(params).filter(([, value]) => value && value !== 'all'))}`, {
+      headers: stored?.session_token ? { Authorization: `Bearer ${stored.session_token}` } : {},
+    })
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}))
+      throw new Error(error.detail || `Export failed (${response.status})`)
+    }
+    const disposition = response.headers.get('content-disposition') || ''
+    const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] || 'warehouse-control-tower-audit.xlsx'
+    return { blob: await response.blob(), filename }
+  },
   adminUsers: () => request('/api/admin/users'),
   saveAdminUser: (payload) => request('/api/admin/users', { method: 'POST', body: JSON.stringify(payload) }),
   policy: () => request('/api/admin/policy'),
@@ -74,15 +97,23 @@ export const api = {
   scan: () => request('/api/scan', { method: 'POST' }),
   chat: (payload) => request('/api/chat', { method: 'POST', body: JSON.stringify(payload) }),
   chatStream: async (payload, onEvent) => {
-    const response = await fetch(`${API_BASE}/api/chat/stream`, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' }, body: JSON.stringify(payload) })
-    if (!response.ok || !response.body) throw new Error(`Chat stream failed (${response.status})`)
-    const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = ''
+    const stored = session()
+    const auth = stored?.session_token ? { Authorization: `Bearer ${stored.session_token}` } : {}
+    const response = await fetch(`${API_BASE}/api/chat/stream`, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', ...auth }, body: JSON.stringify(payload) })
+    if (!response.ok || !response.body) {
+      const error = await response.json().catch(() => ({}))
+      throw new Error(error.detail || `Chat stream failed (${response.status})`)
+    }
+    const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = ''; let completed = false
+    const consume = (frame) => { const event = frame.match(/^event: (.+)$/m)?.[1]; const data = frame.match(/^data: (.+)$/m)?.[1]; if (event && data) { if (event === 'done') completed = true; onEvent(event, JSON.parse(data)) } }
     while (true) {
       const { done, value } = await reader.read(); if (done) break
       buffer += decoder.decode(value, { stream: true })
       const frames = buffer.split('\n\n'); buffer = frames.pop() || ''
-      frames.forEach((frame) => { const event = frame.match(/^event: (.+)$/m)?.[1]; const data = frame.match(/^data: (.+)$/m)?.[1]; if (event && data) onEvent(event, JSON.parse(data)) })
+      frames.forEach(consume)
     }
+    if (buffer.trim()) consume(buffer)
+    if (!completed) throw new Error('The evidence stream ended before a verified response receipt was received')
   },
   applyAction: (anomalyId, actionId) => request(`/api/anomalies/${anomalyId}/actions/${actionId}/apply`, { method: 'POST' }),
   inspectDocument: (file) => { const form = new FormData(); form.append('file', file); return request('/api/documents/inspect', { method: 'POST', body: form }) },

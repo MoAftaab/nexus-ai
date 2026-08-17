@@ -43,7 +43,8 @@ def notify_request(repo: Repository, request, event: str, actor: str | None = No
             if step.decided_by:
                 recipients.add(step.decided_by)
             if step.status == "active":
-                recipients.update(user.user_id for user in users.values() if user.role == step.required_role and _in_scope(user, request.site_id))
+                if step.assigned_to and step.assigned_to in users:
+                    recipients.add(step.assigned_to)
     if actor:
         recipients.discard(actor)
     current = str(request.status).replace("awaiting_", "").replace("_", " ")
@@ -58,6 +59,28 @@ def notify_request(repo: Repository, request, event: str, actor: str | None = No
     title = titles.get(event, "Change request updated")
     message = detail or f"{request.request_id} is now {current}."
     notify_users(repo, recipients, request.site_id, event, title, message, request.request_id, {"status": request.status, "actor": actor})
+
+
+def notify_assignment_failure(repo: Repository, request, required_role: str) -> None:
+    """Route an unassigned stage to one configured governance owner, never a role-wide pool."""
+    recipients: set[str] = set()
+    with repo.session() as session:
+        users = session.scalars(select(UserModel)).all()
+        by_id = {candidate.user_id: candidate for candidate in users}
+        cursor = by_id.get(request.requested_by)
+        visited: set[str] = set()
+        while cursor and cursor.user_id not in visited:
+            visited.add(cursor.user_id)
+            next_id = cursor.escalation_owner_user_id or cursor.manager_user_id
+            cursor = by_id.get(next_id or "")
+            if cursor and cursor.is_active and _in_scope(cursor, request.site_id):
+                recipients.add(cursor.user_id)
+                break
+        if not recipients:
+            administrator = next((candidate for candidate in users if candidate.role == "admin" and candidate.is_active), None)
+            if administrator:
+                recipients.add(administrator.user_id)
+    notify_users(repo, recipients, request.site_id, "stage_unassigned", "Approval stage needs an owner", f"{request.request_id} requires an active {required_role.replace('_', ' ')} assignee. The stage was not bypassed.", request.request_id, {"status": request.status, "required_role": required_role, "assignment_problem": True})
 
 
 def list_notifications(repo: Repository, user: dict[str, Any], unread_only: bool = False) -> list[dict[str, Any]]:

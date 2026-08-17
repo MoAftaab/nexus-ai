@@ -30,4 +30,8 @@ def test_inflight_policy_version_is_frozen_and_policy_shape_is_valid(client, log
     updated = client.put("/api/admin/policy", headers=headers, json={"rules": policy.json()["rules"]})
     assert updated.status_code == 200
     assert updated.json()["version"] == policy.json()["version"] + 1
-
+    invalid = client.put("/api/admin/policy", headers=headers, json={"rules": [{
+        "name": "unsafe", "roles": ["admin"], "sla_hours": 0, "warning_percent": 95, "urgent_percent": 80,
+    }]})
+    assert invalid.status_code == 422
+    assert client.get("/api/admin/policy", headers=headers).json()["version"] == updated.json()["version"]

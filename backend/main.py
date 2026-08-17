@@ -1,33 +1,44 @@
 from __future__ import annotations
 
 import asyncio
+from copy import deepcopy
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, File, Header, HTTPException, Query, UploadFile, WebSocket
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 
 from app.config import get_settings
-from app.models import ChatRequest
+from app.models import (
+    ChatRequest, DelegationInput, DetailRequestInput, DetailResponseInput,
+    WorkflowConfirmationInput, WorkflowPreviewInput,
+)
 from app.services.operations import OperationsStore
 from app.services.document_parser import inspect_and_index
 from app.services.reasoner import answer_chat, stream_chat
 from app.services.event_bus import EventBus
 from app.services.auth import can_access_site, principal_from_token, sign_in, sign_out
 from app.services.change_control import (
-    build_change_preview, cancel_change_request, create_change_request, decide_approval,
+    _activate_step, _audit, build_change_preview, cancel_change_request, create_change_request, decide_approval,
     diff_snapshots, execute_approved_change, inbox as approval_inbox, list_requests,
-    revise_change_request, rollback_change, serialize_request, submit_change_request, workflow_summary,
+    reconcile_active_assignments, revise_change_request, rollback_change, serialize_request,
+    submit_change_request, workflow_summary,
 )
-from app.services.notifications import list_notifications, mark_notification_read
-from app.db import ContainerModel, DispatchScheduleModel, InboundOrderModel, InventoryPositionModel, MasterSkuModel, OutboundOrderModel, SupplierModel, WorkforceLogModel
+from app.services.notifications import create_notification, list_notifications, mark_notification_read, notify_assignment_failure
+from app.services.audit_reporting import audit_event_rows, build_audit_request_rows, build_audit_workbook, verify_audit_chain
+from app.services.workflow_coordination import (
+    confirm_workflow_action, delegate_stage, eligible_recipients, evaluate_sla,
+    list_detail_requests, prepare_workflow_action, request_details, respond_to_details,
+)
+from app.db import ContainerModel, DispatchScheduleModel, InboundOrderModel, InventoryPositionModel, MasterSkuModel, OutboundOrderModel, SupplierModel, UserModel, WorkforceLogModel
 
 
 settings = get_settings()
 store = OperationsStore(settings)
+reconcile_active_assignments(store.repository)
 event_bus = EventBus(settings.redis_url)
 
 
@@ -39,7 +50,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(
-    title="NexusAI Operations API",
+    title="Warehouse Control Tower AI Operations API",
     version="1.0.0",
     description="Synthetic-data automotive supply-chain cascade intelligence.",
     lifespan=lifespan,
@@ -62,7 +73,7 @@ def current_user(authorization: str | None) -> dict[str, object]:
     token = authorization.removeprefix("Bearer ").strip() if authorization else None
     user = principal_from_token(store.repository, token)
     if not user:
-        raise HTTPException(status_code=401, detail="A valid NexusAI session is required")
+        raise HTTPException(status_code=401, detail="A valid Warehouse Control Tower AI session is required")
     return user
 
 
@@ -122,8 +133,14 @@ async def change_preview(payload: dict[str, str], authorization: str | None = He
 @app.post("/api/changes", status_code=201)
 async def change_create(payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
     user = current_user(authorization)
-    if user.get("role") not in {"operator", "lead", "manager", "quality_compliance", "director", "admin"}:
-        raise HTTPException(status_code=403, detail="Read-only users cannot create change requests")
+    if user.get("role") != "operator":
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Only an Operations Operator requester can create change-request drafts; "
+                "approval roles cannot be requesters because that would violate separation of duties"
+            ),
+        )
     try:
         request = create_change_request(payload, user, store.repository, store)
     except PermissionError as error:
@@ -235,6 +252,119 @@ async def change_cancel(request_id: str, authorization: str | None = Header(defa
     return result
 
 
+@app.get("/api/changes/{request_id}/permissions")
+async def change_permissions(request_id: str, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    result = serialize_request(store.repository, request_id, current_user(authorization))
+    if not result:
+        raise HTTPException(status_code=404, detail="Change request not found")
+    return result["permission"]
+
+
+@app.get("/api/changes/{request_id}/details")
+async def change_details(request_id: str, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    try:
+        items = list_detail_requests(request_id, current_user(authorization), store.repository)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    return {"items": items, "total": len(items)}
+
+
+@app.post("/api/changes/{request_id}/details", status_code=201)
+async def change_request_details(request_id: str, payload: DetailRequestInput, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    user = current_user(authorization)
+    try:
+        result = request_details(request_id, payload.model_dump(), user, store.repository)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    await event_bus.publish("details_requested", {"request_id": request_id, "detail_request_id": result["detail_request_id"]})
+    return result
+
+
+@app.post("/api/changes/{request_id}/details/{detail_request_id}/respond")
+async def change_respond_details(request_id: str, detail_request_id: str, payload: DetailResponseInput, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    user = current_user(authorization)
+    try:
+        result = respond_to_details(request_id, detail_request_id, payload.model_dump(), user, store.repository)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    await event_bus.publish("details_responded", {"request_id": request_id, "detail_request_id": detail_request_id})
+    return result
+
+
+@app.get("/api/changes/{request_id}/eligible-recipients")
+async def change_eligible_recipients(request_id: str, kind: str = Query(pattern="^(delegation|escalation)$"), authorization: str | None = Header(default=None)) -> dict[str, object]:
+    try:
+        return eligible_recipients(request_id, kind, current_user(authorization), store.repository)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.post("/api/changes/{request_id}/delegate")
+async def change_delegate(request_id: str, payload: DelegationInput, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    try:
+        result = delegate_stage(request_id, payload.model_dump(), current_user(authorization), store.repository)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    await event_bus.publish("delegation_completed", result)
+    return result
+
+
+@app.post("/api/changes/{request_id}/{kind}/preview", status_code=201)
+async def workflow_action_preview(request_id: str, kind: str, payload: WorkflowPreviewInput, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    if kind not in {"reminder", "escalation"}:
+        raise HTTPException(status_code=404, detail="Workflow action not found")
+    try:
+        return prepare_workflow_action(request_id, kind, payload.model_dump(), current_user(authorization), store.repository)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@app.post("/api/changes/{request_id}/{kind}/confirm")
+async def workflow_action_confirm(request_id: str, kind: str, payload: WorkflowConfirmationInput, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    if kind not in {"reminder", "escalation"}:
+        raise HTTPException(status_code=404, detail="Workflow action not found")
+    try:
+        result = confirm_workflow_action(request_id, payload.action_id, kind, current_user(authorization), store.repository)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    await event_bus.publish(f"{kind}_confirmed", {"request_id": request_id, "action_id": result["action_id"], "recipient": result["recipient_user_id"]})
+    return result
+
+
+@app.post("/api/workflow/sla/evaluate")
+async def workflow_sla_evaluate(authorization: str | None = Header(default=None)) -> dict[str, object]:
+    try:
+        return evaluate_sla(store.repository, current_user(authorization))
+    except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+
+
 @app.post("/api/changes/{request_id}/rollback")
 async def change_rollback(request_id: str, payload: dict[str, object] | None = None, authorization: str | None = Header(default=None)) -> dict[str, object]:
     user = current_user(authorization)
@@ -290,29 +420,84 @@ async def admin_users(authorization: str | None = Header(default=None)) -> dict[
     from app.db import UserModel
     with store.repository.session() as session:
         rows = session.scalars(select(UserModel).order_by(UserModel.id)).all()
-        return {"items": [{"user_id": row.user_id, "email": row.email, "display_name": row.display_name, "role": row.role, "site_scopes": row.site_scopes, "is_active": row.is_active} for row in rows]}
+        return {"items": [{"user_id": row.user_id, "email": row.email, "display_name": row.display_name, "role": row.role, "site_scopes": row.site_scopes, "is_active": row.is_active, "manager_user_id": row.manager_user_id, "escalation_owner_user_id": row.escalation_owner_user_id} for row in rows]}
 
 
 @app.post("/api/admin/users")
 async def admin_user_upsert(payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
     admin = admin_user(authorization)
-    from app.db import UserModel
+    from app.db import ApprovalStepModel, ChangeRequestModel, SiteModel, UserModel
     from app.services.auth import ROLES, _hash_password
-    if payload.get("role") not in ROLES or not payload.get("email"):
+    email = str(payload.get("email") or "").lower().strip()
+    role = str(payload.get("role") or "")
+    scopes = list(dict.fromkeys(str(scope) for scope in (payload.get("site_scopes") or [])))
+    if role not in ROLES or "@" not in email or email.startswith("@") or email.endswith("@"):
         raise HTTPException(status_code=422, detail="Valid email and role are required")
+    if "is_active" in payload and not isinstance(payload["is_active"], bool):
+        raise HTTPException(status_code=422, detail="is_active must be a boolean")
+    if "*" in scopes and role not in {"director", "auditor", "admin"}:
+        raise HTTPException(status_code=422, detail="Enterprise site scope is limited to director, auditor, and administrator roles")
+    manager_id = str(payload.get("manager_user_id") or "") or None
+    escalation_id = str(payload.get("escalation_owner_user_id") or "") or None
+    target_user_id = email.split("@", 1)[0]
+    if target_user_id in {manager_id, escalation_id}:
+        raise HTTPException(status_code=422, detail="A user cannot report or escalate to themselves")
+    reassignments: list[tuple[object, dict[str, object], str | None]] = []
     with store.repository.session() as session:
-        email = str(payload["email"]).lower()
+        valid_sites = set(session.scalars(select(SiteModel.site_id)).all())
+        if any(scope != "*" and scope not in valid_sites for scope in scopes):
+            raise HTTPException(status_code=422, detail="Every site scope must reference a configured site")
+        users_by_id = {candidate.user_id: candidate for candidate in session.scalars(select(UserModel)).all()}
+        permitted_manager_roles = {
+            "operator": {"lead", "manager", "director"}, "lead": {"manager", "director"},
+            "manager": {"director"}, "quality_compliance": {"director"},
+            "director": set(), "auditor": set(), "admin": set(),
+        }
+        for relationship_id in (manager_id, escalation_id):
+            if relationship_id:
+                candidate = users_by_id.get(relationship_id)
+                if not candidate or not candidate.is_active or candidate.role not in permitted_manager_roles[role]:
+                    raise HTTPException(status_code=422, detail="Reporting and escalation owners must be active users in an authorized higher role")
+                if "*" not in (candidate.site_scopes or []) and not set(scopes).intersection(candidate.site_scopes or []):
+                    raise HTTPException(status_code=422, detail="Reporting and escalation owners must share the user's site scope")
         row = session.scalar(select(UserModel).where(UserModel.email == email))
         if row:
+            next_active = payload.get("is_active", row.is_active)
+            if row.role == "admin" and (role != "admin" or not next_active):
+                other_admin = session.scalar(select(UserModel).where(UserModel.role == "admin", UserModel.is_active.is_(True), UserModel.user_id != row.user_id))
+                if not other_admin:
+                    raise HTTPException(status_code=409, detail="The last active administrator cannot be deactivated or moved to another role")
             row.display_name = str(payload.get("display_name") or row.display_name)
-            row.role = str(payload["role"])
-            row.site_scopes = list(payload.get("site_scopes") or [])
-            row.is_active = bool(payload.get("is_active", row.is_active))
+            row.role = role
+            row.site_scopes = scopes
+            row.is_active = payload.get("is_active", row.is_active)
+            row.manager_user_id = manager_id
+            row.escalation_owner_user_id = escalation_id
         else:
-            row = UserModel(user_id=email.split("@", 1)[0], email=email, display_name=str(payload.get("display_name") or email), role=str(payload["role"]), site_scopes=list(payload.get("site_scopes") or []), password_hash=_hash_password(str(payload.get("password") or "nexusai2026")))
+            if target_user_id in users_by_id:
+                raise HTTPException(status_code=409, detail="The email would duplicate an existing user ID")
+            row = UserModel(user_id=target_user_id, email=email, display_name=str(payload.get("display_name") or email), role=role, site_scopes=scopes, password_hash=_hash_password(str(payload.get("password") or "nexusai2026")), is_active=payload.get("is_active", True), manager_user_id=manager_id, escalation_owner_user_id=escalation_id)
             session.add(row)
         session.flush()
-        return {"user_id": row.user_id, "email": row.email, "display_name": row.display_name, "role": row.role, "site_scopes": row.site_scopes, "updated_by": admin["user_id"]}
+        active_steps = session.scalars(select(ApprovalStepModel).where(ApprovalStepModel.assigned_to == row.user_id, ApprovalStepModel.status.in_({"active", "paused"}))).all()
+        for step in active_steps:
+            if row.is_active and row.role == step.required_role and ("*" in (row.site_scopes or []) or step.site_id in (row.site_scopes or [])):
+                continue
+            request = session.scalar(select(ChangeRequestModel).where(ChangeRequestModel.request_id == step.request_id))
+            previous, prior_status = step.assigned_to, step.status
+            step.assigned_to = None
+            assignment = _activate_step(session, request, step, str(admin["user_id"]))
+            if prior_status == "paused":
+                step.status = "paused"
+            reassignments.append((deepcopy(request), {**assignment, "previous_assignee": previous, "trigger": "identity_configuration_changed"}, assignment.get("assigned_to")))
+        result = {"user_id": row.user_id, "email": row.email, "display_name": row.display_name, "role": row.role, "site_scopes": row.site_scopes, "is_active": row.is_active, "manager_user_id": row.manager_user_id, "escalation_owner_user_id": row.escalation_owner_user_id, "updated_by": admin["user_id"], "stages_reassigned": len(reassignments)}
+    for request, assignment, new_assignee in reassignments:
+        _audit(store.repository, "stage_reassigned", admin, request, assignment)
+        if new_assignee:
+            create_notification(store.repository, new_assignee, request.site_id, "stage_reassigned", "Approval reassigned to you", f"{request.request_id} was reassigned after an identity or scope change.", request.request_id, assignment)
+        else:
+            notify_assignment_failure(store.repository, request, str(assignment.get("required_role") or "approval"))
+    return result
 
 
 @app.get("/api/admin/policy")
@@ -329,13 +514,58 @@ async def admin_policy(authorization: str | None = Header(default=None)) -> dict
         return {"version": row.version, "rules": row.rules, "created_by": row.created_by, "created_at": row.created_at.isoformat() if row.created_at else datetime.now(timezone.utc).isoformat()}
 
 
+def _validate_policy_rules(rules: object) -> list[dict[str, object]]:
+    if not isinstance(rules, list) or not rules:
+        raise HTTPException(status_code=422, detail="Policy rules must be a non-empty list")
+    operational_roles = {"lead", "manager", "quality_compliance", "director"}
+    names: set[str] = set()
+    result: list[dict[str, object]] = []
+    for index, raw in enumerate(rules):
+        if not isinstance(raw, dict):
+            raise HTTPException(status_code=422, detail=f"Policy rule {index + 1} must be an object")
+        rule = dict(raw)
+        name = str(rule.get("name") or "").strip()
+        roles = rule.get("roles")
+        if not name or name in names:
+            raise HTTPException(status_code=422, detail="Every policy rule needs a unique name")
+        if not isinstance(roles, list) or not roles or len(set(roles)) != len(roles) or any(role not in operational_roles for role in roles):
+            raise HTTPException(status_code=422, detail=f"Policy rule '{name}' must use unique operational approval roles")
+        names.add(name)
+        for field in ("min_impact", "max_impact"):
+            if rule.get(field) is not None and (isinstance(rule[field], bool) or not isinstance(rule[field], int) or int(rule[field]) < 0):
+                raise HTTPException(status_code=422, detail=f"Policy rule '{name}' has an invalid {field}")
+        if rule.get("min_impact") is not None and rule.get("max_impact") is not None and int(rule["min_impact"]) > int(rule["max_impact"]):
+            raise HTTPException(status_code=422, detail=f"Policy rule '{name}' has an inverted impact range")
+        sla_hours = rule.get("sla_hours", 24)
+        warning = rule.get("warning_percent", 75)
+        urgent = rule.get("urgent_percent", 90)
+        max_reminders = rule.get("max_reminders", 2)
+        if isinstance(sla_hours, bool) or not isinstance(sla_hours, (int, float)) or not 1 <= float(sla_hours) <= 720:
+            raise HTTPException(status_code=422, detail=f"Policy rule '{name}' must have sla_hours between 1 and 720")
+        if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in (warning, urgent)) or not 0 <= float(warning) < float(urgent) <= 100:
+            raise HTTPException(status_code=422, detail=f"Policy rule '{name}' must have ordered warning and urgent percentages")
+        if isinstance(max_reminders, bool) or not isinstance(max_reminders, int) or not 0 <= max_reminders <= 20:
+            raise HTTPException(status_code=422, detail=f"Policy rule '{name}' has an invalid max_reminders value")
+        chain = rule.get("escalation_chain", [])
+        if not isinstance(chain, list) or len(set(chain)) != len(chain) or any(role not in operational_roles for role in chain):
+            raise HTTPException(status_code=422, detail=f"Policy rule '{name}' has an invalid escalation chain")
+        severities = rule.get("severity", [])
+        if not isinstance(severities, list) or any(value not in {"low", "medium", "high", "critical"} for value in severities):
+            raise HTTPException(status_code=422, detail=f"Policy rule '{name}' has invalid severity values")
+        keywords = rule.get("keywords", [])
+        if not isinstance(keywords, list) or any(not isinstance(value, str) or not value.strip() or len(value) > 80 for value in keywords):
+            raise HTTPException(status_code=422, detail=f"Policy rule '{name}' has invalid regulated-workflow keywords")
+        if "pause_on_details" in rule and not isinstance(rule["pause_on_details"], bool):
+            raise HTTPException(status_code=422, detail=f"Policy rule '{name}' has an invalid pause_on_details value")
+        result.append(rule)
+    return result
+
+
 @app.put("/api/admin/policy")
 async def admin_policy_update(payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
     admin = admin_user(authorization)
     from app.db import ApprovalPolicyModel
-    rules = payload.get("rules")
-    if not isinstance(rules, list) or not rules:
-        raise HTTPException(status_code=422, detail="Policy rules must be a non-empty list")
+    rules = _validate_policy_rules(payload.get("rules"))
     with store.repository.session() as session:
         current = session.scalar(select(ApprovalPolicyModel).where(ApprovalPolicyModel.is_active.is_(True)).order_by(ApprovalPolicyModel.version.desc()))
         version = current.version + 1 if current else 1
@@ -425,6 +655,8 @@ async def cascade_explain(anomaly_id: str):
 
 @app.post("/api/anomalies/{anomaly_id}/actions/{action_id}/apply")
 async def apply_action(anomaly_id: str, action_id: str) -> dict[str, object]:
+    if not settings.allow_legacy_direct_apply:
+        raise HTTPException(status_code=409, detail="Direct source mutation is disabled. Create and complete a governed Change Control request instead.")
     anomaly_result, action_title = store.approve_action(anomaly_id, action_id)
     if not anomaly_result or not action_title:
         raise HTTPException(status_code=404, detail="Action not found")
@@ -494,7 +726,7 @@ async def anomaly_report(anomaly_id: str):
     return Response(
         content=report,
         media_type="text/markdown; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="nexusai_incident_{anomaly_id}.md"'},
+        headers={"Content-Disposition": f'attachment; filename="warehouse_control_tower_incident_{anomaly_id}.md"'},
     )
 
 
@@ -510,7 +742,7 @@ async def escalations() -> dict[str, object]:
             "id": anomaly.id, "severity": anomaly.severity, "channel": "#warehouse-escalations",
             "to": f"{owner} · shift manager on duty",
             "subject": f"[{anomaly.severity.upper()}] {anomaly.title}",
-            "body": f"{anomaly.summary} Modeled exposure €{anomaly.impact:,}; {anomaly.time_to_impact} until first consequence. Recommended: {anomaly.actions[0].title if anomaly.actions else 'escalate for manual review'} (confidence {anomaly.actions[0].confidence if anomaly.actions else '—'}%). Open NexusAI → {anomaly.id} to approve.",
+            "body": f"{anomaly.summary} Modeled exposure €{anomaly.impact:,}; {anomaly.time_to_impact} until first consequence. Recommended: {anomaly.actions[0].title if anomaly.actions else 'escalate for manual review'} (confidence {anomaly.actions[0].confidence if anomaly.actions else '—'}%). Open Warehouse Control Tower AI → {anomaly.id} to approve.",
             "time_to_impact": anomaly.time_to_impact,
         })
     return {"items": items, "note": "Preview only — wire a Slack/Teams webhook or SMTP relay to deliver these for real."}
@@ -561,8 +793,38 @@ async def document_preview(document_id: str):
 
 
 @app.get("/api/audit")
-async def audit() -> dict[str, object]:
-    return {"items": store.audit()}
+async def audit(authorization: str | None = Header(default=None)) -> dict[str, object]:
+    user = current_user(authorization)
+    if user.get("role") != "auditor":
+        raise HTTPException(status_code=403, detail="Auditor role required")
+    items = audit_event_rows(store.repository)
+    return {"items": list(reversed(items)), "chain_verified": verify_audit_chain(items), "total": len(items)}
+
+
+@app.get("/api/audit/requests")
+async def audit_requests(site_id: str | None = None, search: str | None = None, status: str | None = None, decision: str | None = None, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    user = current_user(authorization)
+    if user.get("role") != "auditor":
+        raise HTTPException(status_code=403, detail="Auditor role required")
+    return build_audit_request_rows(store.repository, site_id=site_id, search=search, status=status, decision=decision)
+
+
+@app.get("/api/audit/export.xlsx")
+async def audit_export(site_id: str | None = None, search: str | None = None, status: str | None = None, decision: str | None = None, authorization: str | None = Header(default=None)) -> Response:
+    user = current_user(authorization)
+    if user.get("role") != "auditor":
+        raise HTTPException(status_code=403, detail="Auditor role required")
+    report = build_audit_request_rows(store.repository, site_id=site_id, search=search, status=status, decision=decision)
+    events = audit_event_rows(store.repository)
+    request_ids = {row["request_id"] for row in report["items"]}
+    filtered_events = [event for event in events if not event.get("request_id") or event.get("request_id") in request_ids]
+    content = build_audit_workbook(report["items"], filtered_events)
+    filename = f"warehouse-control-tower-audit-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.xlsx"
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.get("/api/outcomes")
@@ -599,14 +861,49 @@ async def system_health() -> dict[str, object]:
     return payload
 
 
+def _chat_with_workflow_context(request: ChatRequest, user: dict[str, object]) -> ChatRequest:
+    """Attach only server-verified workflow facts visible to this principal."""
+    context = None
+    if request.request_id:
+        record = serialize_request(store.repository, request.request_id, user)
+        if not record:
+            raise HTTPException(status_code=404, detail="The governed request is unavailable in your role or site scope")
+        context = {
+            "request_id": record["request_id"],
+            "title": record.get("title"),
+            "site_id": record.get("site_id"),
+            "status": record.get("status"),
+            "requested_by": record.get("requested_by"),
+            "requested_at": record.get("created_at"),
+            "current_owner": record.get("current_owner"),
+            "active_step": record.get("active_step"),
+            "allowed_actions": record.get("allowed_actions", []),
+            "denial_reasons": (record.get("permission") or {}).get("denial_reasons", []),
+            "policy_version": record.get("policy_version"),
+            "approval_route": [{
+                "required_role": step.get("required_role"),
+                "status": step.get("status"),
+                "assigned_to": step.get("assigned_to"),
+                "decided_by": step.get("decided_by"),
+                "decided_at": step.get("decided_at"),
+                "decision": step.get("decision"),
+            } for step in record.get("steps", [])],
+            "principal": {"user_id": user.get("user_id"), "role": user.get("role")},
+        }
+    return request.model_copy(update={"workflow_context": context})
+
+
 @app.post("/api/chat")
-async def chat(request: ChatRequest) -> object:
-    return await answer_chat(request, store, settings)
+async def chat(request: ChatRequest, authorization: str | None = Header(default=None)) -> object:
+    user = current_user(authorization)
+    return await answer_chat(_chat_with_workflow_context(request, user), store, settings)
 
 
 @app.post("/api/chat/stream")
-async def chat_stream(request: ChatRequest):
-    return StreamingResponse(stream_chat(request, store, settings), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+async def chat_stream(request: ChatRequest, authorization: str | None = Header(default=None)):
+    user = current_user(authorization)
+    verified_request = _chat_with_workflow_context(request, user)
+    return StreamingResponse(stream_chat(verified_request, store, settings), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @app.post("/api/documents/inspect")
@@ -621,7 +918,7 @@ async def inspect_document(file: UploadFile = File(...)) -> object:
         await event_bus.publish("document_ingested", {"document_id": result.document_id, "filename": result.filename, "status": result.status})
         return result
     except Exception as error:
-        raise HTTPException(status_code=422, detail=f"Nexus could not parse this document: {error}") from error
+        raise HTTPException(status_code=422, detail=f"Warehouse Control Tower AI could not parse this document: {error}") from error
 
 
 @app.websocket("/ws/operations")

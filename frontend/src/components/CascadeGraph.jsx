@@ -37,9 +37,9 @@ const toFlowNodes = (graph, activeId, waves, waveGen = 0) => (graph?.nodes || []
 }))
 const toFlowEdges = (graph) => (graph?.edges || []).map((edge, index) => ({
   id: `${edge.source}-${edge.target}-${index}`, source: edge.source, target: edge.target, label: `${edge.probability}%`,
-  markerEnd: { type: MarkerType.ArrowClosed, color: '#d8b878' }, animated: edge.probability > 70,
-  style: { stroke: edge.probability > 70 ? '#d8b878' : '#7a7390', strokeWidth: edge.probability > 70 ? 2 : 1.25 },
-  labelStyle: { fill: '#e6d6b0', fontSize: 10, fontWeight: 700 }, labelBgStyle: { fill: '#221f31', fillOpacity: 0.88 },
+  markerEnd: { type: MarkerType.ArrowClosed, color: '#FAAA3C' }, animated: edge.probability > 70,
+  style: { stroke: edge.probability > 70 ? '#FAAA3C' : 'rgba(140,190,230,0.45)', strokeWidth: edge.probability > 70 ? 2 : 1.25 },
+  labelStyle: { fill: '#FAD2AA', fontSize: 10, fontWeight: 700 }, labelBgStyle: { fill: '#002733', fillOpacity: 0.88 },
 }))
 
 // BFS depth from the cascade source so the shockwave ripples through nodes in
@@ -89,8 +89,8 @@ export function CascadeGraph({ graph, selectedId, onSelect, compact = false }) {
   if (!graph?.nodes?.length) return <div className="graph-empty">No dependency path exists for this finding.</div>
   return <div className={`cascade-explorer ${compact ? 'compact' : ''}`}>
     <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} nodeTypes={nodeTypes} onNodeClick={handleClick} fitView fitViewOptions={{ padding: compact ? 0.26 : 0.16 }} minZoom={0.35} maxZoom={1.45} proOptions={{ hideAttribution: true }}>
-      <Background color="#575072" gap={30} size={1} className="graph-background" />
-      {!compact && <><Controls showInteractive={false} /><MiniMap nodeColor={(node) => ({ critical: '#e0808f', risk: '#d8b878', watch: '#9d94c9', healthy: '#7fc7ad' })[node.data?.node?.health] || '#9d94c9'} maskColor="rgba(16, 14, 26, .74)" /></>}
+      <Background color="rgba(0,140,130,0.28)" gap={30} size={1} className="graph-background" />
+      {!compact && <><Controls showInteractive={false} /><MiniMap nodeColor={(node) => ({ critical: '#E67364', risk: '#FAAA3C', watch: '#8CBEE6', healthy: '#008C82' })[node.data?.node?.health] || '#8CBEE6'} maskColor="rgba(0, 39, 51, 0.74)" /></>}
     </ReactFlow>
     {selected && <div className="graph-inspector"><span><CircleDot size={13} />Selected dependency</span><strong>{selected.label}</strong><p>{selected.detail}</p><div><b><Timer size={13} />{selected.time_to_impact}</b>{selected.impact > 0 && <b><Euro size={13} />{currency(selected.impact)}</b>}</div></div>}
   </div>

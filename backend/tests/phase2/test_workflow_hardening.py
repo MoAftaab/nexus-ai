@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from app.services.change_control import compute_approval_stages
+from sqlalchemy import select
+
+from app.db import ApprovalStepModel, UserModel
+from app.services.change_control import compute_approval_stages, reconcile_active_assignments
+from main import store
 
 
 def _create_request(client, headers, severity=None):
@@ -52,6 +56,28 @@ def test_requester_role_cannot_create_a_deadlocked_request(client, login_as):
     response = client.post("/api/changes", headers=director, json=preview.json())
     assert response.status_code == 403
     assert "requester" in response.json()["detail"].lower()
+
+
+def test_legacy_unassigned_active_stage_is_reconciled_to_exact_role_and_site(client, login_as):
+    requester = login_as(client, "operator1@nexusai.demo")
+    request = _create_request(client, requester, "low")
+    submitted = client.post(f"/api/changes/{request['request_id']}/submit", headers=requester)
+    assert submitted.status_code == 200
+    step_id = submitted.json()["active_step"]["id"]
+    with store.repository.session() as session:
+        step = session.scalar(select(ApprovalStepModel).where(ApprovalStepModel.id == step_id))
+        step.assigned_to = None
+        step.assigned_at = None
+        step.assignment_reason = None
+    result = reconcile_active_assignments(store.repository)
+    assert result == {"repaired": 1, "unresolved": 0}
+    assert reconcile_active_assignments(store.repository) == {"repaired": 0, "unresolved": 0}
+    with store.repository.session() as session:
+        step = session.scalar(select(ApprovalStepModel).where(ApprovalStepModel.id == step_id))
+        owner = session.scalar(select(UserModel).where(UserModel.user_id == step.assigned_to))
+        assert owner is not None
+        assert owner.role == step.required_role
+        assert "*" in owner.site_scopes or step.site_id in owner.site_scopes
 
 
 def test_invalid_change_payload_returns_validation_error(client, login_as):

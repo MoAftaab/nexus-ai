@@ -8,7 +8,7 @@ from threading import RLock
 import random
 import uuid
 
-from app.db import ApprovalStepModel, ChangeRequestModel, ContainerModel, DispatchScheduleModel, InboundOrderModel, InventoryPositionModel, MasterSkuModel, OutboundOrderModel, Repository, SupplierModel, WorkforceLogModel
+from app.db import ApprovalStepModel, ChangeRequestModel, ContainerModel, DetailRequestModel, DispatchScheduleModel, InboundOrderModel, InventoryPositionModel, MasterSkuModel, OutboundOrderModel, Repository, SupplierModel, WorkflowActionModel, WorkforceLogModel
 from app.config import Settings
 from app.models import Anomaly, CascadeEdge, CascadeNode, DocumentInspection, Evidence, FixAction
 from app.services.cascade_engine import CascadeEngine
@@ -205,6 +205,7 @@ class OperationsStore:
         self.repository.initialize()
         seed_users_and_sites(self.repository)
         loaded = self.repository.load_run()
+        reset_template = None
         if loaded and loaded["run"].metadata_json.get("dataset_schema") != DATASET_SCHEMA_VERSION:
             # The normal initialization path below atomically replaces the old demo
             # run with the current schema and selected-model metadata.
@@ -219,6 +220,7 @@ class OperationsStore:
             self._dataset = generate_dataset(settings.demo_seed)
             self._ml_selection = select_best_inventory_model(self._dataset.inventory, self._dataset.seed)
             self._anomalies = detect_anomalies(self._dataset, self._ml_selection.inventory_scores) + detect_sap_anomalies(self._dataset)
+            reset_template = (deepcopy(self._dataset), deepcopy(self._ml_selection), deepcopy(self._anomalies))
             self._run_id = self.repository.save_run(self._dataset, self._anomalies, {"dataset_schema": DATASET_SCHEMA_VERSION, "ml_model": self._ml_metadata(include_scores=True)})
             # The value ledger describes the previous twin's findings; a fresh
             # board starts with a fresh ledger so dashboard and outcomes reconcile.
@@ -229,6 +231,7 @@ class OperationsStore:
         self._classifier = None  # lazily rebuilt on first live incident injection
         self._scan_count = 1842
         self._last_scan = datetime.now(timezone.utc)
+        self._reset_template = reset_template
 
     def _restore_ml_selection(self, model_metadata: dict) -> ModelSelection:
         """Rebuild the persisted model selection; retrain only when scores are absent.
@@ -556,14 +559,18 @@ class OperationsStore:
         Generation + model training (~14s worst case) run OUTSIDE the lock so
         concurrent readers keep serving the old board; the swap itself is brief.
         """
-        dataset = generate_dataset(self.settings.demo_seed)
-        selection = select_best_inventory_model(dataset.inventory, dataset.seed)
-        anomalies = detect_anomalies(dataset, selection.inventory_scores) + detect_sap_anomalies(dataset)
+        if self._reset_template is None:
+            dataset = generate_dataset(self.settings.demo_seed)
+            selection = select_best_inventory_model(dataset.inventory, dataset.seed)
+            anomalies = detect_anomalies(dataset, selection.inventory_scores) + detect_sap_anomalies(dataset)
+            self._reset_template = (deepcopy(dataset), deepcopy(selection), deepcopy(anomalies))
+        else:
+            dataset, selection, anomalies = deepcopy(self._reset_template)
         with self._lock:
             # A reset replaces the source twin. Any request that has not reached
             # a terminal historical state must be cancelled so its old snapshot
             # cannot be approved or executed against the new dataset.
-            open_statuses = {"draft", "returned", "awaiting_lead", "awaiting_manager", "awaiting_quality_compliance", "awaiting_director", "approved", "applying", "awaiting_verification", "failed_verification"}
+            open_statuses = {"draft", "returned", "waiting_for_details", "awaiting_lead", "awaiting_manager", "awaiting_quality_compliance", "awaiting_director", "approved", "applying", "awaiting_verification", "failed_verification"}
             with self.repository.session() as session:
                 open_requests = session.query(ChangeRequestModel).filter(ChangeRequestModel.status.in_(open_statuses)).all()
                 request_ids = [row.request_id for row in open_requests]
@@ -573,7 +580,9 @@ class OperationsStore:
                     row.payload = {**(row.payload or {}), "cancel_reason": "Demo data reset replaced the source twin", "cancelled_at": reset_time}
                     row.updated_at = datetime.now(timezone.utc)
                 if request_ids:
-                    session.query(ApprovalStepModel).filter(ApprovalStepModel.request_id.in_(request_ids), ApprovalStepModel.status.in_({"waiting", "active"})).update({"status": "cancelled"}, synchronize_session=False)
+                    session.query(ApprovalStepModel).filter(ApprovalStepModel.request_id.in_(request_ids), ApprovalStepModel.status.in_({"waiting", "active", "paused"})).update({"status": "cancelled"}, synchronize_session=False)
+                    session.query(DetailRequestModel).filter(DetailRequestModel.request_id.in_(request_ids), DetailRequestModel.status == "open").update({"status": "cancelled"}, synchronize_session=False)
+                    session.query(WorkflowActionModel).filter(WorkflowActionModel.request_id.in_(request_ids), WorkflowActionModel.status == "previewed").update({"status": "expired"}, synchronize_session=False)
             self._dataset = dataset
             self._ml_selection = selection
             self._anomalies = anomalies

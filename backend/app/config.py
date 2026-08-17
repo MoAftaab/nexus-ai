@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-5.4-mini"
     frontend_url: str = "http://localhost:5173"
     demo_mode: bool = True
+    # Compatibility for legacy synthetic-data tests only. Keep false in every
+    # deployed environment so source corrections cannot bypass Change Control.
+    allow_legacy_direct_apply: bool = False
     # Optional reproducibility control; omit it to generate a fresh demo operation on boot.
     demo_seed: int | None = None
     database_url: str = "sqlite:///./nexus.db"

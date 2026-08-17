@@ -11,6 +11,7 @@ from typing import Any, Iterator
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, create_engine, delete, func, inspect, select, text, update
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
+from sqlalchemy.pool import StaticPool
 from sqlalchemy.types import JSON
 
 from app.config import Settings
@@ -130,6 +131,8 @@ class UserModel(Base):
     site_scopes: Mapped[list[str]] = mapped_column(JSON, default=list)
     password_hash: Mapped[str] = mapped_column(String(256))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    manager_user_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    escalation_owner_user_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
@@ -181,6 +184,8 @@ class ApprovalStepModel(Base):
     stage: Mapped[str] = mapped_column(String(48))
     required_role: Mapped[str] = mapped_column(String(48))
     assigned_to: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    assigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    assignment_reason: Mapped[str | None] = mapped_column(String(160), nullable=True)
     site_id: Mapped[str] = mapped_column(String(32))
     status: Mapped[str] = mapped_column(String(24), default="waiting")
     sla_deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -189,6 +194,42 @@ class ApprovalStepModel(Base):
     decision: Mapped[str | None] = mapped_column(String(24), nullable=True)
     comment: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     order_index: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class DetailRequestModel(Base):
+    __tablename__ = "workflow_detail_requests"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    detail_request_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    request_id: Mapped[str] = mapped_column(String(64), index=True)
+    approval_step_id: Mapped[int] = mapped_column(Integer, index=True)
+    requested_by: Mapped[str] = mapped_column(String(64))
+    requested_from: Mapped[str] = mapped_column(String(64), index=True)
+    requested_fields: Mapped[list[str]] = mapped_column(JSON, default=list)
+    question: Mapped[str] = mapped_column(String(1000), default="")
+    status: Mapped[str] = mapped_column(String(24), default="open", index=True)
+    response: Mapped[str | None] = mapped_column(String(4000), nullable=True)
+    evidence_attachments: Mapped[list[str]] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    responded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class WorkflowActionModel(Base):
+    """A confirmable, idempotent workflow preview or automatic SLA action."""
+    __tablename__ = "workflow_actions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    action_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    action_type: Mapped[str] = mapped_column(String(48), index=True)
+    request_id: Mapped[str] = mapped_column(String(64), index=True)
+    approval_step_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    actor_user_id: Mapped[str] = mapped_column(String(64), index=True)
+    recipient_user_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(24), default="previewed", index=True)
+    reason: Mapped[str] = mapped_column(String(1000), default="")
+    idempotency_key: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class NotificationModel(Base):
@@ -209,7 +250,8 @@ class NotificationModel(Base):
 class Repository:
     def __init__(self, settings: Settings):
         connect_args = {"check_same_thread": False, "timeout": 30.0} if settings.database_url.startswith("sqlite") else {}
-        self.engine = create_engine(settings.database_url, future=True, pool_pre_ping=True, connect_args=connect_args)
+        engine_options = {"poolclass": StaticPool} if settings.database_url in {"sqlite://", "sqlite:///:memory:"} else {}
+        self.engine = create_engine(settings.database_url, future=True, pool_pre_ping=True, connect_args=connect_args, **engine_options)
         self.sessions = sessionmaker(bind=self.engine, expire_on_commit=False, class_=Session)
 
     def initialize(self) -> None:
@@ -229,6 +271,25 @@ class Repository:
             if "site_id" not in columns:
                 with self.engine.begin() as connection:
                     connection.execute(text(f'ALTER TABLE "{table}" ADD COLUMN site_id VARCHAR(32)'))
+        additive_columns = {
+            "users": {
+                "manager_user_id": "VARCHAR(64)",
+                "escalation_owner_user_id": "VARCHAR(64)",
+            },
+            "approval_steps": {
+                "assigned_at": "DATETIME",
+                "assignment_reason": "VARCHAR(160)",
+            },
+        }
+        inspector = inspect(self.engine)
+        for table, expected in additive_columns.items():
+            if table not in inspector.get_table_names():
+                continue
+            existing = {column["name"] for column in inspector.get_columns(table)}
+            with self.engine.begin() as connection:
+                for column, sql_type in expected.items():
+                    if column not in existing:
+                        connection.execute(text(f'ALTER TABLE "{table}" ADD COLUMN "{column}" {sql_type}'))
 
     @contextmanager
     def session(self) -> Iterator[Session]:

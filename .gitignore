@@ -10,8 +10,11 @@ __pycache__/
 .venv/
 .nexus-env/
 *.db
+*.db-wal
+*.db-shm
 node_modules/
 dist/
+.vercel/
 coverage/
 uploads/
 backend/knowledge/operational_brief.md
@@ -25,4 +28,3 @@ Thumbs.db
 .DS_Store
 tmp/
 claude-code-apple-skills/
-

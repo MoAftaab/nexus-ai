@@ -28,11 +28,11 @@ ROLES = {"operator", "lead", "manager", "quality_compliance", "director", "audit
 
 def default_policy_rules() -> list[dict[str, Any]]:
     return [
-        {"name": "low", "severity": ["low"], "max_impact": 24_999, "roles": ["lead"]},
-        {"name": "medium", "severity": ["medium"], "min_impact": 25_000, "max_impact": 99_999, "roles": ["manager"]},
-        {"name": "high", "severity": ["high"], "min_impact": 100_000, "max_impact": 249_999, "roles": ["manager", "director"]},
-        {"name": "critical", "severity": ["critical"], "min_impact": 250_000, "roles": ["manager", "director"]},
-        {"name": "regulated", "keywords": ["ppap", "hazmat", "vda", "sds", "compliance", "document release"], "roles": ["quality_compliance"]},
+        {"name": "low", "severity": ["low"], "max_impact": 24_999, "roles": ["lead"], "sla_hours": 24, "warning_percent": 75, "urgent_percent": 90, "pause_on_details": True, "max_reminders": 2, "escalation_chain": ["manager", "director"]},
+        {"name": "medium", "severity": ["medium"], "min_impact": 25_000, "max_impact": 99_999, "roles": ["manager"], "sla_hours": 16, "warning_percent": 75, "urgent_percent": 90, "pause_on_details": True, "max_reminders": 2, "escalation_chain": ["director"]},
+        {"name": "high", "severity": ["high"], "min_impact": 100_000, "max_impact": 249_999, "roles": ["manager", "director"], "sla_hours": 8, "warning_percent": 75, "urgent_percent": 90, "pause_on_details": True, "max_reminders": 3, "escalation_chain": ["director"]},
+        {"name": "critical", "severity": ["critical"], "min_impact": 250_000, "roles": ["manager", "director"], "sla_hours": 4, "warning_percent": 50, "urgent_percent": 75, "pause_on_details": False, "max_reminders": 3, "critical_immediate_escalation": True, "escalation_chain": ["director"]},
+        {"name": "regulated", "keywords": ["ppap", "hazmat", "vda", "sds", "compliance", "document release"], "roles": ["quality_compliance"], "sla_hours": 12, "warning_percent": 75, "urgent_percent": 90, "pause_on_details": True, "max_reminders": 2, "escalation_chain": ["director"]},
     ]
 
 
@@ -75,12 +75,42 @@ def seed_users_and_sites(repository: Repository) -> None:
         for site_data in SITES:
             if not session.scalar(select(SiteModel).where(SiteModel.site_id == site_data["site_id"])):
                 session.add(SiteModel(**site_data))
+        existing_emails = set(session.scalars(select(UserModel.email)).all())
+        shared_demo_hash = _hash_password(DEMO_PASSWORD) if any(email not in existing_emails for email, *_ in account_specs) else None
         for email, display_name, role, scopes in account_specs:
-            user = session.scalar(select(UserModel).where(UserModel.email == email))
-            if not user:
-                session.add(UserModel(user_id=email.split("@", 1)[0], display_name=display_name, email=email, role=role, site_scopes=scopes, password_hash=_hash_password(DEMO_PASSWORD), is_active=True))
-        if not session.scalar(select(ApprovalPolicyModel).where(ApprovalPolicyModel.is_active.is_(True)).order_by(ApprovalPolicyModel.version.desc())):
+            if email not in existing_emails:
+                session.add(UserModel(user_id=email.split("@", 1)[0], display_name=display_name, email=email, role=role, site_scopes=scopes, password_hash=str(shared_demo_hash), is_active=True))
+        session.flush()
+        users = {row.user_id: row for row in session.scalars(select(UserModel)).all()}
+        director_id = "director"
+        for index, _site in enumerate(SITES, 1):
+            relationships = {
+                f"operator{index}": f"lead{index}",
+                f"lead{index}": f"manager{index}",
+                f"manager{index}": director_id,
+                f"quality{index}": director_id,
+            }
+            for user_id, manager_id in relationships.items():
+                if user_id in users and manager_id in users:
+                    if not users[user_id].manager_user_id:
+                        users[user_id].manager_user_id = manager_id
+                    if not users[user_id].escalation_owner_user_id:
+                        users[user_id].escalation_owner_user_id = manager_id
+        active_policy = session.scalar(select(ApprovalPolicyModel).where(ApprovalPolicyModel.is_active.is_(True)).order_by(ApprovalPolicyModel.version.desc()))
+        if not active_policy:
             session.add(ApprovalPolicyModel(version=1, rules=default_policy_rules(), is_active=True, created_by="system"))
+        elif any(isinstance(rule, dict) and "sla_hours" not in rule for rule in (active_policy.rules or [])):
+            # Add SLA controls through a new version so requests already tied to
+            # the old version retain their frozen route and deadline semantics.
+            defaults_by_name = {rule["name"]: rule for rule in default_policy_rules()}
+            generic_sla = {"sla_hours": 24, "warning_percent": 75, "urgent_percent": 90, "pause_on_details": True, "max_reminders": 2, "escalation_chain": ["director"]}
+            migrated_rules = []
+            for rule in active_policy.rules or []:
+                source = dict(rule) if isinstance(rule, dict) else {}
+                defaults = defaults_by_name.get(source.get("name"), generic_sla)
+                migrated_rules.append({**defaults, **source})
+            active_policy.is_active = False
+            session.add(ApprovalPolicyModel(version=active_policy.version + 1, rules=migrated_rules, is_active=True, created_by="system_sla_migration"))
 
 
 def _user_payload(user: UserModel, sites: list[SiteModel] | None = None) -> dict[str, Any]:
@@ -126,4 +156,4 @@ def can_access_site(user: dict[str, Any], site_id: str) -> bool:
 
 
 def can_approve_role(user: dict[str, Any], required_role: str) -> bool:
-    return user.get("role") == required_role or (required_role == "director" and user.get("role") == "admin")
+    return user.get("role") == required_role

@@ -16,6 +16,7 @@ export const workflowStatusLabels = {
   awaiting_manager: 'Waiting for Operations Manager',
   awaiting_quality_compliance: 'Waiting for Quality and Compliance',
   awaiting_director: 'Waiting for Supply Chain Director',
+  waiting_for_details: 'Waiting for requested details',
   approved: 'Approved, preparing execution',
   applying: 'Applying approved change',
   awaiting_verification: 'Waiting for verification',

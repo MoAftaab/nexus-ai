@@ -9,8 +9,8 @@ const pct = (value) => `${(value * 100).toFixed(1)}%`
 const modelLabel = (name) => (name || '').replaceAll('_', ' ')
 
 const chartTheme = {
-  tick: { fill: '#9895aa', fontSize: 10 },
-  tooltip: { background: '#1f1c31', border: '1px solid #736234', borderRadius: 10 },
+  tick: { fill: 'rgba(140,190,230,0.6)', fontSize: 10 },
+  tooltip: { background: '#002733', border: '1px solid rgba(140,190,230,0.35)', borderRadius: 10 },
 }
 
 export function SystemHealth() {
@@ -44,11 +44,11 @@ export function SystemHealth() {
         <div className="section-title"><div><span className="eyebrow"><BrainCircuit size={14} /> Detector benchmark</span><h3>Why {modelLabel(model.name)} is live</h3></div><span className="system-note">{model.validation} · {number(model.training_records)} labeled records</span></div>
         <div className="chart-wrap tall"><ResponsiveContainer width="100%" height="100%">
           <BarChart data={benchmark} margin={{ top: 12, right: 8, left: -22, bottom: 0 }} barGap={2}>
-            <CartesianGrid stroke="rgba(244, 228, 186,.07)" vertical={false} />
+            <CartesianGrid stroke="rgba(140,190,230,0.07)" vertical={false} />
             <XAxis dataKey="label" axisLine={false} tickLine={false} tick={chartTheme.tick} />
             <YAxis domain={[0, 1]} tickFormatter={(value) => `${value * 100}%`} axisLine={false} tickLine={false} tick={chartTheme.tick} />
-            <Tooltip cursor={{ fill: 'rgba(239, 217, 156,.06)' }} contentStyle={chartTheme.tooltip} labelStyle={{ color: '#f5f3ed' }} formatter={(value, key) => [pct(value), key]} />
-            {METRIC_KEYS.map((key, index) => <Bar key={key} dataKey={key} radius={[3, 3, 0, 0]} fill={['#eacc7b', '#f5f3ed', '#d2b76c', '#ac9554'][index]}>
+            <Tooltip cursor={{ fill: 'rgba(140,190,230,0.06)' }} contentStyle={chartTheme.tooltip} labelStyle={{ color: '#F5FBFC' }} formatter={(value, key) => [pct(value), key]} />
+            {METRIC_KEYS.map((key, index) => <Bar key={key} dataKey={key} radius={[3, 3, 0, 0]} fill={['#FAAA3C', '#8CBEE6', '#008C82', '#E67364'][index]}>
               {benchmark.map((candidate) => <Cell key={candidate.name} opacity={candidate.selected ? 1 : .45} />)}
             </Bar>)}
           </BarChart>
@@ -73,11 +73,11 @@ export function SystemHealth() {
         <div className="section-title"><div><span className="eyebrow"><Gauge size={14} /> Score distribution</span><h3>{number(model.scored_positions)} positions scored · {model.flagged_over_50} flagged ≥ .5</h3></div></div>
         <div className="chart-wrap tall"><ResponsiveContainer width="100%" height="100%">
           <BarChart data={system.score_distribution} margin={{ top: 12, right: 8, left: -12, bottom: 0 }}>
-            <CartesianGrid stroke="rgba(244, 228, 186,.07)" vertical={false} />
-            <XAxis dataKey="bucket" axisLine={false} tickLine={false} tick={chartTheme.tick} label={{ value: 'anomaly score', position: 'insideBottom', offset: -2, fill: '#807c94', fontSize: 9 }} />
+            <CartesianGrid stroke="rgba(140,190,230,0.07)" vertical={false} />
+            <XAxis dataKey="bucket" axisLine={false} tickLine={false} tick={chartTheme.tick} label={{ value: 'anomaly score', position: 'insideBottom', offset: -2, fill: 'rgba(140,190,230,0.6)', fontSize: 9 }} />
             <YAxis scale="sqrt" axisLine={false} tickLine={false} tick={chartTheme.tick} />
-            <Tooltip cursor={{ fill: 'rgba(239, 217, 156,.06)' }} contentStyle={chartTheme.tooltip} labelStyle={{ color: '#f5f3ed' }} formatter={(value) => [number(value), 'positions']} />
-            <Bar dataKey="count" radius={[3, 3, 0, 0]}>{system.score_distribution.map((bucket, index) => <Cell key={bucket.bucket} fill={index >= 5 ? '#e8c973' : '#827245'} />)}</Bar>
+            <Tooltip cursor={{ fill: 'rgba(140,190,230,0.06)' }} contentStyle={chartTheme.tooltip} labelStyle={{ color: '#F5FBFC' }} formatter={(value) => [number(value), 'positions']} />
+            <Bar dataKey="count" radius={[3, 3, 0, 0]}>{system.score_distribution.map((bucket, index) => <Cell key={bucket.bucket} fill={index >= 5 ? '#C2FE06' : '#003845'} />)}</Bar>
           </BarChart>
         </ResponsiveContainer></div>
         <p className="system-footnote">Square-root axis so the rare high-score tail stays visible next to {number(model.scored_positions)} healthy positions. Features: {model.features.join(', ')}.</p>

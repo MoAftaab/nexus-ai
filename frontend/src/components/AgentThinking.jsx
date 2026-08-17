@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Check, BrainCircuit } from 'lucide-react'
+import { agentPresentation } from '../utils/agentLabels'
 
 const fallbackSteps = [
   { name: 'Signal intake', detail: 'Parsing your question and attaching live context' },
@@ -15,11 +16,11 @@ const fallbackSteps = [
 // Real recent handoffs cycle underneath as overheard agent chatter.
 export function AgentThinking({ agents, trace, communication }) {
   const steps = trace?.length
-    ? trace.map((handoff) => ({ name: handoff.agent, detail: handoff.detail || handoff.role }))
+    ? trace.map((handoff) => ({ name: agentPresentation(handoff.agent, handoff.role).name, detail: handoff.detail || agentPresentation(handoff.agent, handoff.role).role }))
     : agents?.length
-      ? agents.map((agent) => ({ name: agent.name, detail: agent.role }))
+      ? agents.map((agent) => agentPresentation(agent.name, agent.role))
       : fallbackSteps
-  const all = [...steps, { name: 'Orchestrator', detail: 'Weighing specialist evidence into one recommendation' }]
+  const all = [...steps, { name: 'WALT Coordinator', detail: 'Combining specialist evidence into one recommendation' }]
   const [active, setActive] = useState(0)
   const [chatterIndex, setChatterIndex] = useState(0)
   useEffect(() => {
@@ -39,6 +40,6 @@ export function AgentThinking({ agents, trace, communication }) {
       <div><strong>{step.name}</strong><small>{step.detail}</small></div>
       {index === active && <span className="thinking-dots"><span /><span /><span /></span>}
     </div>)}
-    {chatter && <div className="thinking-chatter" key={chatterIndex}><b>{chatter.from}</b> → <b>{chatter.to}</b><span>“{chatter.message}”</span></div>}
+    {chatter && <div className="thinking-chatter" key={chatterIndex}><b>{agentPresentation(chatter.from).name}</b> → <b>{agentPresentation(chatter.to).name}</b><span>“{chatter.message}”</span></div>}
   </div>
 }

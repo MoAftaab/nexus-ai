@@ -4,7 +4,7 @@ Architecture
 ------------
 Five specialist agents run in parallel, each with a role-specific system prompt,
 curated context, and calibrated temperature.  Their structured handoff notes are
-merged by a Nexus Orchestrator synthesis call that produces the final operator answer.
+merged by a Control Tower Orchestrator synthesis call that produces the final operator answer.
 
 Prompting techniques applied throughout:
   • Persona + domain expertise definition
@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from collections.abc import AsyncIterator
 
 from app.config import Settings
@@ -398,13 +399,18 @@ def _relevant(store: OperationsStore, question: str):
     Resolved findings are excluded: presenting a fixed defect as the
     "highest-priority verified path" would contradict the board.
     """
-    terms = {term.lower() for term in question.replace("?", " ").replace(",", " ").split() if len(term) > 2}
+    stopwords = {"the", "and", "for", "that", "this", "with", "what", "which", "show", "tell", "about", "why", "how", "its", "from"}
+    terms = {term.lower() for term in re.findall(r"[A-Za-z0-9_-]+", question) if len(term) > 2 and term.lower() not in stopwords}
     scored = []
     for anomaly in store.anomalies():
         if anomaly.status == "resolved":
             continue
-        haystack = f"{anomaly.id} {anomaly.title} {anomaly.type} {anomaly.sku} {anomaly.system} {anomaly.zone}".lower()
-        scored.append((sum(term in haystack for term in terms), anomaly))
+        evidence = " ".join(f"{fact.label} {fact.value} {fact.source}" for fact in anomaly.evidence)
+        controls = " ".join(f"{action.title} {action.owner} {action.description}" for action in anomaly.actions)
+        haystack = f"{anomaly.id} {anomaly.title} {anomaly.type} {anomaly.sku} {anomaly.system} {anomaly.zone} {anomaly.summary} {anomaly.root_cause} {evidence} {controls}".lower()
+        exact_id = 100 if anomaly.id.lower() in terms else 0
+        semantic_matches = sum(1 + min(len(term), 12) / 12 for term in terms if term in haystack)
+        scored.append((exact_id + semantic_matches, anomaly))
     ordered = [anomaly for _, anomaly in sorted(scored, key=lambda item: (item[0], item[1].impact), reverse=True)]
     return ordered[:3]
 
@@ -442,45 +448,104 @@ def _role_context(name: str, finding_text: str, query: str) -> tuple[str, list[d
 
 
 def _evidence_packet(store: OperationsStore, request: ChatRequest) -> tuple[str, list[dict[str, str]], list[str]]:
-    """Build the full evidence packet (used by deterministic fallback)."""
-    related = _relevant(store, request.message)
+    """Build a query-aware evidence packet from the live operational state."""
+    recent_context = " ".join(turn.content for turn in request.history[-4:])
+    contextual_question = f"{request.message} {recent_context}".strip()
+    related = _relevant(store, contextual_question)
     finding_text = _build_findings_text(related)
     markdown = store.knowledge_context(request.message)
     docs_text = "\n\n".join(f"SOURCE: {item['source']}\n{item['content']}" for item in markdown)
-    return f"VERIFIED FINDINGS\n{finding_text}\n\nRETRIEVED MARKDOWN CONTEXT\n{docs_text}", markdown, [item.id for item in related]
+    workflow_text = json.dumps(request.workflow_context, sort_keys=True, default=str) if request.workflow_context else "No governed request is selected."
+    return f"VERIFIED FINDINGS\n{finding_text}\n\nSERVER-VERIFIED WORKFLOW CONTEXT\n{workflow_text}\n\nRETRIEVED MARKDOWN CONTEXT\n{docs_text}", markdown, [item.id for item in related]
 
 
 # ---------------------------------------------------------------------------
-# Deterministic fallback (no API key)
+# Query-aware operational evidence engine (no API key required)
 # ---------------------------------------------------------------------------
 
 
 def deterministic_mesh(request: ChatRequest, store: OperationsStore) -> ChatResponse:
-    """Evidence-only fallback that runs without any LLM call."""
-    packet, markdown, ids = _evidence_packet(store, request)
+    """Synthesize a complete answer directly from current verified records."""
+    _, markdown, ids = _evidence_packet(store, request)
     related = [store.anomaly(item_id) for item_id in ids]
     related = [item for item in related if item]
     lead = related[0] if related else next((item for item in store.anomalies() if item.status != "resolved"), None)
-    trace = [{"agent": name, "role": role, "status": "evidence-ready", "detail": "Used deterministic operational records"} for name, role in SPECIALISTS]
+    trace = [{"agent": name, "role": role, "status": "evidence-ready", "detail": "Synthesized current verified operational records"} for name, role in SPECIALISTS]
     trace.append({"agent": "Knowledge", "role": "Markdown retrieval", "status": "attached", "detail": f"{len(markdown)} relevant Markdown records"})
+    workflow_terms = {"approval", "approve", "approver", "assigned", "assignment", "owner", "request", "reject", "role", "status", "workflow", "who"}
+    question_terms = {term.lower() for term in re.findall(r"[A-Za-z]+", request.message)}
+    if request.workflow_context and workflow_terms.intersection(question_terms):
+        context = request.workflow_context
+        owner = context.get("current_owner") or {}
+        owner_ids = owner.get("user_ids") or []
+        active = context.get("active_step") or {}
+        actions = list(context.get("allowed_actions") or [])
+        reasons = list(context.get("denial_reasons") or [])
+        route = context.get("approval_route") or []
+        route_lines = "\n".join(
+            f"- {str(stage.get('required_role') or 'unknown').replace('_', ' ').title()}: "
+            f"{str(stage.get('decision') or stage.get('status') or 'planned').replace('_', ' ')}"
+            for stage in route
+        ) or "- No approval stages are configured."
+        permission_text = (
+            ", ".join(action.replace("_", " ") for action in actions)
+            if actions else "No workflow mutation is permitted for this signed-in user."
+        )
+        if reasons:
+            permission_text += " " + " ".join(reasons)
+        answer = (
+            f"### Governed request — {context.get('request_id')}\n"
+            f"**{context.get('title') or 'Change request'}** is currently **{str(context.get('status') or 'unknown').replace('_', ' ')}** "
+            f"under policy version **{context.get('policy_version')}**.\n\n"
+            f"**Exact current assignment**\n\n"
+            f"- Owner role: {owner.get('label') or str(active.get('required_role') or 'System').replace('_', ' ').title()}\n"
+            f"- Assigned account: {', '.join(owner_ids) if owner_ids else 'No named human is currently assigned'}\n"
+            f"- Requested by: {context.get('requested_by')} at {context.get('requested_at')}\n\n"
+            f"**Your permitted actions**\n\n{permission_text}\n\n"
+            f"**Approval route**\n\n{route_lines}\n\n"
+            "WALT reports the server-evaluated assignment only. A matching job title is not enough: only the exact assigned account can approve or reject the active stage."
+        )
+        trace.append({"agent": "Governance", "role": "Workflow authorization", "status": "verified", "detail": f"Evaluated {context.get('request_id')} for the signed-in principal"})
+        return ChatResponse(answer=answer, source="operational_evidence", cited_anomaly_ids=[], suggested_actions=actions[:3], agent_trace=trace)
     if lead is None:
         return ChatResponse(
             answer="No active findings are on the board right now. All monitored source systems are inside their thresholds; run a scan or upload a document to re-check.",
-            source="nexus_deterministic", cited_anomaly_ids=[], suggested_actions=[], agent_trace=trace,
+            source="operational_evidence", cited_anomaly_ids=[], suggested_actions=[], agent_trace=trace,
         )
+
+    open_findings = [item for item in store.anomalies() if item.status != "resolved"]
+    total_exposure = sum(item.impact for item in open_findings)
     actions = [action.title for item in related for action in item.actions][:3]
+    evidence_lines = "\n".join(
+        f"- **{fact.label}:** {fact.value} — {fact.source}"
+        for fact in lead.evidence
+    ) or "- No corroborating evidence rows are attached; hold and request source verification."
     answer = (
-        f"**{lead.title}** is the highest-priority verified path. It carries €{lead.impact:,} in modeled exposure with {lead.time_to_impact} remaining. "
-        f"The current evidence points to: {lead.root_cause}"
+        f"### Decision brief — {lead.id}\n"
+        f"**{lead.title}** is the finding most relevant to your question. It is **{lead.severity}** severity, "
+        f"with **€{lead.impact:,}** in modeled exposure and **{lead.time_to_impact}** to impact.\n\n"
+        f"**Why it matters**\n\n{lead.root_cause}\n\n"
+        f"**Verified evidence**\n\n{evidence_lines}"
     )
     if lead.actions:
+        control = lead.actions[0]
         answer += (
-            f" \n\n**Recommended control:** {lead.actions[0].title}. Owner: {lead.actions[0].owner}; ETA: {lead.actions[0].eta}; confidence: {lead.actions[0].confidence}%. "
-            "This remains a human-approved action."
+            f"\n\n**Safest available control**\n\n"
+            f"**{control.title}**\n"
+            f"- Owner: {control.owner}\n"
+            f"- ETA: {control.eta}\n"
+            f"- Confidence: {control.confidence}%\n"
+            f"- Value protected if verified: €{control.impact_saved:,}\n"
+            f"- Verification basis: {control.description}\n\n"
+            "This is a recommendation only. It must pass the displayed human approval route before source data changes."
         )
     else:
-        answer += " \n\nNo pre-approved control is available for this finding — escalate to the operations manager."
-    return ChatResponse(answer=answer, source="nexus_deterministic", cited_anomaly_ids=ids, suggested_actions=actions, agent_trace=trace)
+        answer += "\n\n**Control gap:** No approved control is attached to this finding. Hold the affected process and escalate to the operations manager."
+    answer += (
+        f"\n\n**Live board context:** {len(open_findings)} open findings represent €{total_exposure:,} "
+        "in current modeled exposure. Figures above are taken from the live anomaly and evidence records."
+    )
+    return ChatResponse(answer=answer, source="operational_evidence", cited_anomaly_ids=ids, suggested_actions=actions, agent_trace=trace)
 
 
 # ---------------------------------------------------------------------------
@@ -526,6 +591,8 @@ async def _run_all_specialists(client, model: str, request: ChatRequest, store: 
     """
     related = _relevant(store, request.message)
     finding_text = _build_findings_text(related)
+    if request.workflow_context:
+        finding_text += "\n\nSERVER-VERIFIED WORKFLOW CONTEXT\n" + json.dumps(request.workflow_context, sort_keys=True, default=str)
     ids = [item.id for item in related]
     recent = "\n".join(f"{turn.role}: {turn.content}" for turn in request.history[-6:]) or "(No prior conversation)"
 
@@ -594,59 +661,70 @@ async def run_agent_mesh(request: ChatRequest, store: OperationsStore, settings:
         return deterministic_mesh(request, store)
     from openai import AsyncOpenAI
 
-    client = AsyncOpenAI(api_key=settings.openai_api_key)
-    handoffs, markdown, ids = await _run_all_specialists(client, settings.openai_model, request, store)
+    try:
+        client = AsyncOpenAI(api_key=settings.openai_api_key)
+        handoffs, markdown, ids = await _run_all_specialists(client, settings.openai_model, request, store)
 
-    synthesis_input = _build_synthesis_input(handoffs)
-    final = await client.responses.create(
-        model=settings.openai_model,
-        temperature=ORCHESTRATOR_TEMPERATURE,
-        instructions=ORCHESTRATOR_PROMPT,
-        input=f"OPERATOR QUESTION\n{request.message}\n\nSPECIALIST HANDOFFS\n{synthesis_input}",
-    )
+        synthesis_input = _build_synthesis_input(handoffs)
+        final = await client.responses.create(
+            model=settings.openai_model,
+            temperature=ORCHESTRATOR_TEMPERATURE,
+            instructions=ORCHESTRATOR_PROMPT,
+            input=f"OPERATOR QUESTION\n{request.message}\n\nSPECIALIST HANDOFFS\n{synthesis_input}",
+        )
 
-    relevant = [store.anomaly(item_id) for item_id in ids]
-    actions = [action.title for item in relevant if item for action in item.actions][:3]
-    trace = _build_trace(handoffs, markdown, include_orchestrator=True)
-    return ChatResponse(
-        answer=final.output_text,
-        source="openai",
-        cited_anomaly_ids=ids,
-        suggested_actions=actions,
-        agent_trace=trace,
-    )
+        relevant = [store.anomaly(item_id) for item_id in ids]
+        actions = [action.title for item in relevant if item for action in item.actions][:3]
+        trace = _build_trace(handoffs, markdown, include_orchestrator=True)
+        return ChatResponse(
+            answer=final.output_text,
+            source="openai",
+            cited_anomaly_ids=ids,
+            suggested_actions=actions,
+            agent_trace=trace,
+        )
+    except Exception as exc:
+        logger.exception("OpenAI agent mesh failed; serving current operational evidence: %s", exc)
+        return deterministic_mesh(request, store)
 
 
 async def stream_agent_mesh(request: ChatRequest, store: OperationsStore, settings: Settings) -> AsyncIterator[str]:
     """SSE stream: specialist handoff trace first, then token deltas from the orchestrator."""
     if not settings.openai_api_key:
-        fallback = deterministic_mesh(request, store)
-        yield f"event: trace\ndata: {json.dumps(fallback.agent_trace)}\n\n"
-        for word in fallback.answer.split(" "):
+        evidence = deterministic_mesh(request, store)
+        yield f"event: trace\ndata: {json.dumps(evidence.agent_trace)}\n\n"
+        for word in evidence.answer.split(" "):
             yield f"event: delta\ndata: {json.dumps({'text': word + ' '})}\n\n"
-        yield f"event: done\ndata: {json.dumps({'source': fallback.source, 'cited_anomaly_ids': fallback.cited_anomaly_ids, 'suggested_actions': fallback.suggested_actions})}\n\n"
+        yield f"event: done\ndata: {json.dumps({'source': evidence.source, 'cited_anomaly_ids': evidence.cited_anomaly_ids, 'suggested_actions': evidence.suggested_actions})}\n\n"
         return
 
     from openai import AsyncOpenAI
 
-    client = AsyncOpenAI(api_key=settings.openai_api_key)
-    handoffs, markdown, ids = await _run_all_specialists(client, settings.openai_model, request, store)
+    try:
+        client = AsyncOpenAI(api_key=settings.openai_api_key)
+        handoffs, markdown, ids = await _run_all_specialists(client, settings.openai_model, request, store)
 
-    trace = _build_trace(handoffs, markdown)
-    yield f"event: trace\ndata: {json.dumps(trace)}\n\n"
+        trace = _build_trace(handoffs, markdown)
+        yield f"event: trace\ndata: {json.dumps(trace)}\n\n"
 
-    synthesis_input = _build_synthesis_input(handoffs)
-    stream = await client.responses.create(
-        model=settings.openai_model,
-        temperature=ORCHESTRATOR_TEMPERATURE,
-        stream=True,
-        instructions=ORCHESTRATOR_PROMPT,
-        input=f"OPERATOR QUESTION\n{request.message}\n\nSPECIALIST HANDOFFS\n{synthesis_input}",
-    )
-    async for event in stream:
-        if event.type == "response.output_text.delta":
-            yield f"event: delta\ndata: {json.dumps({'text': event.delta})}\n\n"
+        synthesis_input = _build_synthesis_input(handoffs)
+        stream = await client.responses.create(
+            model=settings.openai_model,
+            temperature=ORCHESTRATOR_TEMPERATURE,
+            stream=True,
+            instructions=ORCHESTRATOR_PROMPT,
+            input=f"OPERATOR QUESTION\n{request.message}\n\nSPECIALIST HANDOFFS\n{synthesis_input}",
+        )
+        async for event in stream:
+            if event.type == "response.output_text.delta":
+                yield f"event: delta\ndata: {json.dumps({'text': event.delta})}\n\n"
 
-    relevant = [store.anomaly(item_id) for item_id in ids]
-    actions = [action.title for item in relevant if item for action in item.actions][:3]
-    yield f"event: done\ndata: {json.dumps({'source': 'openai', 'cited_anomaly_ids': ids, 'suggested_actions': actions})}\n\n"
+        relevant = [store.anomaly(item_id) for item_id in ids]
+        actions = [action.title for item in relevant if item for action in item.actions][:3]
+        yield f"event: done\ndata: {json.dumps({'source': 'openai', 'cited_anomaly_ids': ids, 'suggested_actions': actions})}\n\n"
+    except Exception as exc:
+        logger.exception("Streaming agent mesh failed; switching to current operational evidence: %s", exc)
+        evidence = deterministic_mesh(request, store)
+        yield f"event: reset\ndata: {json.dumps({'text': evidence.answer})}\n\n"
+        yield f"event: trace\ndata: {json.dumps(evidence.agent_trace)}\n\n"
+        yield f"event: done\ndata: {json.dumps({'source': evidence.source, 'cited_anomaly_ids': evidence.cited_anomaly_ids, 'suggested_actions': evidence.suggested_actions})}\n\n"

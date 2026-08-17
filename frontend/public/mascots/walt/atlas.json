@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "format": "codex-pet-8x9",
+  "frame": { "width": 192, "height": 208 },
+  "grid": { "columns": 8, "rows": 9 },
+  "sheet": { "width": 1536, "height": 1872 },
+  "states": [
+    { "id": "idle", "row": 0, "frames": 6, "fps": 6 },
+    { "id": "running-right", "row": 1, "frames": 8, "fps": 8 },
+    { "id": "running-left", "row": 2, "frames": 8, "fps": 8 },
+    { "id": "waving", "row": 3, "frames": 4, "fps": 6 },
+    { "id": "jumping", "row": 4, "frames": 5, "fps": 7 },
+    { "id": "failed", "row": 5, "frames": 8, "fps": 7 },
+    { "id": "waiting", "row": 6, "frames": 6, "fps": 6 },
+    { "id": "running", "row": 7, "frames": 6, "fps": 8 },
+    { "id": "review", "row": 8, "frames": 6, "fps": 6 }
+  ]
+}
