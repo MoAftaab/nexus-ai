@@ -13,9 +13,9 @@ export function MetricCard({ metric, index, scanning = false }) {
         : ShieldCheck
   return <article className={`metric-card tone-${metric.tone} ${scanning ? 'discovering' : ''}`} style={{ '--delay': `${index * 80}ms`, '--discover-delay': `${index * 320}ms` }}>
     <div className="metric-accent" aria-hidden="true" />
-    <div className="metric-card-top"><span>{metric.label}</span><div className="metric-icon"><Icon size={16} /></div></div>
+    <div className="metric-card-top"><span>{metric.label}</span><div className="metric-icon"><Icon size={13} /></div></div>
     <strong>{value}</strong>
     <small>{metric.detail}</small>
-    <p className={positive ? 'positive' : ''}><ArrowUpRight size={13} />{metric.trend}</p>
+    <p className={positive ? 'positive' : ''}><ArrowUpRight size={11} />{metric.trend}</p>
   </article>
 }
