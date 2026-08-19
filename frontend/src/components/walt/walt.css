@@ -420,6 +420,10 @@
 .walt-chat-message .chat-markdown > :first-child { margin-top: 0; }
 .walt-chat-message .chat-markdown > :last-child { margin-bottom: 0; }
 .walt-chat-message footer { display: flex; align-items: center; gap: 5px; margin-top: 7px; padding-top: 6px; border-top: 1px solid var(--border); color: var(--text-3); font: 500 7px/1.2 'DM Mono', monospace; letter-spacing: .03em; }
+.walt-message-feedback { display: flex; align-items: center; gap: 5px; margin-top: 6px; color: var(--text-3); font: 600 7px/1.2 'DM Mono', monospace; }
+.walt-message-feedback span { margin-right: 2px; }
+.walt-message-feedback button { display: grid; width: 21px; height: 21px; place-items: center; padding: 0; border: 1px solid var(--border-strong); border-radius: 6px; color: var(--text-3); background: transparent; }
+.walt-message-feedback button:hover, .walt-message-feedback button.selected { border-color: var(--walt-green); color: var(--walt-green); background: color-mix(in srgb, var(--walt-green) 10%, transparent); }
 .walt-typing { display: flex; min-height: 24px; align-items: center; gap: 4px; color: var(--text-3); }
 .walt-typing i { width: 5px; height: 5px; border-radius: 50%; background: var(--walt-cyan); animation: walt-typing-dot .8s ease-in-out infinite alternate; }
 .walt-typing i:nth-child(2) { animation-delay: -.26s; }
@@ -523,6 +527,7 @@
 .walt-chat-form input:focus { border-color: var(--walt-green); box-shadow: 0 0 0 3px rgba(0, 140, 130, .1), 0 0 14px rgba(0, 140, 130, .1); }
 .walt-chat-form button { display: inline-flex; width: 76px; height: 41px; align-items: center; justify-content: center; gap: 5px; padding: 0 9px; border: 1px solid var(--walt-green); border-radius: 11px; color: #FFFFFF; background: var(--walt-green); box-shadow: 0 7px 18px rgba(0, 140, 130, .2); font-size: 9px; font-weight: 800; }
 .walt-chat-form button:hover:not(:disabled) { background: var(--vg-hover); transform: translateY(-1px); }
+.walt-chat-form button.cancel { border-color: var(--red); color: var(--red); background: transparent; box-shadow: none; }
 
 .walt-panel-footer { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 14px 11px; border-top: 1px solid var(--border-strong); background: color-mix(in srgb, var(--walt-navy) 2%, var(--dsb-shallow)); }
 .walt-panel-footer p { display: flex; max-width: 330px; align-items: flex-start; gap: 5px; margin: 0; color: var(--text-3); font: 500 7.5px/1.4 'DM Mono', monospace; }

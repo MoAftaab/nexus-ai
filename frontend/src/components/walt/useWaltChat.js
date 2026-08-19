@@ -6,7 +6,9 @@ const initialMessage = {
   source: 'operational_evidence',
 }
 
-export function useWaltChat(onChatStream, onResolve, onConfirm, open, requestId) {
+const REQUEST_TIMEOUT_MS = 30000
+
+export function useWaltChat(onChatStream, onResolve, onConfirm, onFeedback, open, requestId) {
   const [messages, setMessages] = useState([initialMessage])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -19,18 +21,26 @@ export function useWaltChat(onChatStream, onResolve, onConfirm, open, requestId)
   const requestRef = useRef(requestId)
   const conversationVersionRef = useRef(0)
   const successTimerRef = useRef(null)
+  const requestControllerRef = useRef(null)
+  const timeoutRef = useRef(null)
 
   useEffect(() => {
     openRef.current = open
     if (open) setUnread(false)
   }, [open])
 
-  useEffect(() => () => window.clearTimeout(successTimerRef.current), [])
+  useEffect(() => () => {
+    requestControllerRef.current?.abort()
+    window.clearTimeout(successTimerRef.current)
+    window.clearTimeout(timeoutRef.current)
+  }, [])
 
   useEffect(() => {
     if (requestRef.current === requestId) return
     requestRef.current = requestId
     conversationVersionRef.current += 1
+    requestControllerRef.current?.abort()
+    window.clearTimeout(timeoutRef.current)
     loadingRef.current = false
     window.clearTimeout(successTimerRef.current)
     setMessages([initialMessage])
@@ -69,9 +79,12 @@ export function useWaltChat(onChatStream, onResolve, onConfirm, open, requestId)
     setLoading(true)
     window.clearTimeout(successTimerRef.current)
     setActivityState('thinking')
+    const controller = new AbortController()
+    requestControllerRef.current = controller
+    timeoutRef.current = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
 
     try {
-      const resolution = onResolve ? await onResolve({ message: question, request_id: selectedRequestId || undefined }) : { handled: false }
+      const resolution = onResolve ? await onResolve({ message: question, history, request_id: selectedRequestId || undefined }, controller.signal) : { handled: false }
       if (conversationVersion !== conversationVersionRef.current) return
       if (resolution.handled) {
         setMessages((current) => current.map((message) => message.id === assistantId ? {
@@ -103,6 +116,8 @@ export function useWaltChat(onChatStream, onResolve, onConfirm, open, requestId)
             source: payload.source || 'operational_evidence',
             citedAnomalyIds: payload.cited_anomaly_ids || [],
             suggestions: payload.suggested_actions || [],
+            confidence: payload.confidence || 'medium',
+            sourceRefs: payload.source_refs || payload.cited_anomaly_ids || [],
           }
           return message
         }))
@@ -112,20 +127,34 @@ export function useWaltChat(onChatStream, onResolve, onConfirm, open, requestId)
           successTimerRef.current = window.setTimeout(() => setActivityState('waiting'), 2200)
           if (!openRef.current) setUnread(true)
         }
-      })
+      }, controller.signal)
     } catch (cause) {
       if (conversationVersion !== conversationVersionRef.current) return
-      setError(`Live evidence request failed: ${cause.message}`)
+      const cancelled = controller.signal.aborted
+      setError(cancelled ? 'Request cancelled.' : `Live evidence request failed: ${cause.message}`)
       setMessages((current) => current.map((message) => message.id === assistantId
-        ? { ...message, source: 'request_error', content: 'WALT could not complete the evidence request. Retry when the operations connection is available.' }
+        ? { ...message, source: cancelled ? 'request_cancelled' : 'request_error', content: cancelled ? 'I stopped that request. Ask again whenever you’re ready.' : 'WALT could not complete the evidence request. Retry when the operations connection is available.' }
         : message))
-      setActivityState('error')
+      setActivityState(cancelled ? 'waiting' : 'error')
     } finally {
+      window.clearTimeout(timeoutRef.current)
+      if (requestControllerRef.current === controller) requestControllerRef.current = null
       if (conversationVersion === conversationVersionRef.current) {
         loadingRef.current = false
         setLoading(false)
       }
     }
+  }
+
+  const cancel = () => {
+    if (!loadingRef.current) return
+    requestControllerRef.current?.abort()
+  }
+
+  const rateMessage = async (messageId, rating) => {
+    setMessages((current) => current.map((message) => message.id === messageId ? { ...message, feedback: rating } : message))
+    const message = messages.find((item) => item.id === messageId)
+    try { await onFeedback?.({ message_id: messageId, rating, question: lastQuestion, answer: message?.content || '' }) } catch { /* local feedback remains visible if the audit endpoint is unavailable */ }
   }
 
   const confirmAction = async (messageId, action) => {
@@ -169,6 +198,7 @@ export function useWaltChat(onChatStream, onResolve, onConfirm, open, requestId)
 
   return {
     activityState,
+    cancel,
     clearChat,
     confirmAction,
     dismissAction,
@@ -178,6 +208,7 @@ export function useWaltChat(onChatStream, onResolve, onConfirm, open, requestId)
     loading,
     messages,
     retry: () => send(lastQuestion),
+    rateMessage,
     send,
     setInput,
     unread,

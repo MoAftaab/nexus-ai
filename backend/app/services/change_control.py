@@ -205,9 +205,7 @@ def build_change_preview(anomaly_id: str, action_id: str, user: dict[str, Any], 
     anomaly = store.anomaly(anomaly_id)
     if not anomaly or not any(action.id == action_id for action in anomaly.actions):
         raise LookupError("Anomaly or action not found")
-    site_id = (user.get("permitted_sites") or user.get("site_scopes") or ["wolfsburg"])[0]
-    if site_id == "*":
-        site_id = "wolfsburg"
+    site_id = str(getattr(anomaly, "site_id", None) or "wolfsburg")
     before, proposed = _snapshot_for(anomaly, store, site_id)
     regulated = any(keyword in f"{anomaly.title} {anomaly.type}".lower() for keyword in ("ppap", "hazmat", "vda", "sds", "compliance", "document release"))
     policy = _active_policy(repo)

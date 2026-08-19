@@ -73,8 +73,10 @@ export const api = {
   anomaly: (id) => request(`/api/anomalies/${id}`),
   graph: (id) => request(`/api/cascades${id ? `?anomaly_id=${id}` : ''}`),
   whatif: (anomalyId, actionId) => request(`/api/cascades/${anomalyId}/whatif/${actionId}`),
-  explainCascade: async (anomalyId, onEvent) => {
-    const response = await fetch(`${API_BASE}/api/cascades/${anomalyId}/explain`, { method: 'POST', headers: { Accept: 'text/event-stream' } })
+  explainCascade: async (anomalyId, onEvent, signal) => {
+    const stored = session()
+    const auth = stored?.session_token ? { Authorization: `Bearer ${stored.session_token}` } : {}
+    const response = await fetch(`${API_BASE}/api/cascades/${anomalyId}/explain`, { method: 'POST', headers: { Accept: 'text/event-stream', ...auth }, signal })
     if (!response.ok || !response.body) throw new Error(`Explain failed (${response.status})`)
     const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = ''
     while (true) {
@@ -96,12 +98,13 @@ export const api = {
   reportUrl: (anomalyId) => `${API_BASE}/api/anomalies/${anomalyId}/report`,
   scan: () => request('/api/scan', { method: 'POST' }),
   chat: (payload) => request('/api/chat', { method: 'POST', body: JSON.stringify(payload) }),
-  waltResolve: (payload) => request('/api/walt/resolve', { method: 'POST', body: JSON.stringify(payload) }),
+  waltResolve: (payload, signal) => request('/api/walt/resolve', { method: 'POST', body: JSON.stringify(payload), signal }),
+  waltFeedback: (payload) => request('/api/walt/feedback', { method: 'POST', body: JSON.stringify(payload) }),
   confirmWaltAction: (action) => request(`/api/changes/${action.request_id}/${action.kind}/confirm`, { method: 'POST', body: JSON.stringify({ action_id: action.action_id }) }),
-  chatStream: async (payload, onEvent) => {
+  chatStream: async (payload, onEvent, signal) => {
     const stored = session()
     const auth = stored?.session_token ? { Authorization: `Bearer ${stored.session_token}` } : {}
-    const response = await fetch(`${API_BASE}/api/chat/stream`, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', ...auth }, body: JSON.stringify(payload) })
+    const response = await fetch(`${API_BASE}/api/chat/stream`, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', ...auth }, body: JSON.stringify(payload), signal })
     if (!response.ok || !response.body) {
       const error = await response.json().catch(() => ({}))
       throw new Error(error.detail || `Chat stream failed (${response.status})`)

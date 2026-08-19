@@ -1,8 +1,8 @@
-import { BellRing, CheckCircle2, Clock3, Database, MapPin, Radio, Send, ShieldCheck, UserRound, X } from 'lucide-react'
+import { BellRing, CheckCircle2, Clock3, Database, MapPin, Radio, Send, ShieldCheck, ThumbsDown, ThumbsUp, UserRound, X } from 'lucide-react'
 import { Markdown } from '../Markdown'
 import { WaltAgentFlow } from './WaltAgentFlow'
 
-export function WaltMessage({ message, loading, onChoice, onConfirmAction, onDismissAction }) {
+export function WaltMessage({ message, loading, onChoice, onConfirmAction, onDismissAction, onFeedback }) {
   const assistant = message.role === 'assistant'
   const hasAgentFlow = assistant && (loading || message.trace?.length > 0)
   const action = message.action
@@ -38,8 +38,13 @@ export function WaltMessage({ message, loading, onChoice, onConfirmAction, onDis
       {message.trace?.length > 0 && !loading && <WaltAgentFlow trace={message.trace} />}
       <footer>
         {message.source === 'openai' ? <Radio size={11} /> : message.source === 'governance' ? <ShieldCheck size={11} /> : <Database size={11} />}
-        <span>{message.source === 'openai' ? '5 specialist agents + Control Tower synthesis' : message.source === 'governance' ? 'Verified identity & workflow policy' : 'Operational evidence'}</span>
+        <span>{message.source === 'openai' ? '5 specialist agents + Control Tower synthesis' : message.source === 'governance' ? 'Verified identity & workflow policy' : message.source === 'request_cancelled' ? 'Request stopped by operator' : 'Operational evidence'}{message.confidence ? ` · ${message.confidence} confidence` : ''}{message.sourceRefs?.length ? ` · ${message.sourceRefs.slice(0, 3).join(', ')}` : ''}</span>
       </footer>
+      {message.id && !loading && <div className="walt-message-feedback" aria-label="Rate WALT response">
+        <span>Was this useful?</span>
+        <button type="button" className={message.feedback === 'helpful' ? 'selected' : ''} onClick={() => onFeedback?.(message.id, 'helpful')} aria-label="Helpful"><ThumbsUp size={11} /></button>
+        <button type="button" className={message.feedback === 'not_helpful' ? 'selected' : ''} onClick={() => onFeedback?.(message.id, 'not_helpful')} aria-label="Not helpful"><ThumbsDown size={11} /></button>
+      </div>}
     </>}
   </article>
 }

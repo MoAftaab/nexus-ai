@@ -17,12 +17,69 @@ def test_walt_answers_reporting_manager_and_role_site_scope_from_live_identity(c
     assert manager.json()["handled"] is True
     assert manager.json()["type"] == "identity"
     assert "Lead Wolfsburg" in manager.json()["answer"]
+    assert "lead1@nexusai.demo" in manager.json()["answer"]
+
+    for message in ("Who is my manager?", "What is my manager's email?", "How do I contact my supervisor?"):
+        response = client.post("/api/walt/resolve", headers=operator, json={"message": message})
+        assert response.status_code == 200, response.text
+        assert response.json()["type"] == "identity"
+        assert "lead1@nexusai.demo" in response.json()["answer"]
+
+    follow_up = client.post(
+        "/api/walt/resolve",
+        headers=operator,
+        json={
+            "message": "mail of him?",
+            "history": [{"role": "user", "content": "Who is my manager?"}],
+        },
+    )
+    assert follow_up.status_code == 200, follow_up.text
+    assert "lead1@nexusai.demo" in follow_up.json()["answer"]
+
+    greeting = client.post("/api/walt/resolve", headers=operator, json={"message": "Hello WALT"})
+    assert greeting.json()["type"] == "conversation"
+    assert "WALT" in greeting.json()["answer"]
 
     scope = client.post("/api/walt/resolve", headers=operator, json={"message": "What is my role and site scope?"})
     assert scope.status_code == 200, scope.text
     assert scope.json()["identity"]["user"]["role"] == "operator"
     assert scope.json()["identity"]["site_scopes"] == ["wolfsburg"]
     assert "cannot" in scope.json()["answer"].lower()
+
+
+def test_walt_distinguishes_manager_contact_from_manager_notification_and_keeps_followups(client, login_as):
+    operator = login_as(client, "operator1@nexusai.demo")
+    notify = client.post("/api/walt/resolve", headers=operator, json={"message": "Notify my manager"})
+    assert notify.status_code == 200
+    assert notify.json()["type"] in {"clarification", "denied"}
+    assert "reporting manager" in notify.json()["answer"].lower()
+    assert notify.json()["type"] != "identity"
+
+    owner = client.post("/api/walt/resolve", headers=operator, json={"message": "Who is my escalation owner?"})
+    assert owner.status_code == 200
+    follow_up = client.post("/api/walt/resolve", headers=operator, json={
+        "message": "What is their email?",
+        "history": [{"role": "user", "content": "Who is my escalation owner?"}],
+    })
+    assert follow_up.status_code == 200
+    assert follow_up.json()["type"] == "identity"
+    assert "lead1@nexusai.demo" in follow_up.json()["answer"]
+
+
+def test_walt_feedback_is_authenticated_and_audited(client, login_as):
+    operator = login_as(client, "operator1@nexusai.demo")
+    response = client.post("/api/walt/feedback", headers=operator, json={
+        "message_id": "walt-test-1", "rating": "not_helpful", "question": "What is my manager?", "answer": "Test response",
+    })
+    assert response.status_code == 200
+    assert response.json() == {"recorded": True, "rating": "not_helpful"}
+
+
+def test_unknown_chat_question_does_not_get_an_unrelated_finding(client, login_as):
+    operator = login_as(client, "operator1@nexusai.demo")
+    response = client.post("/api/chat", headers=operator, json={"message": "What is the office lunch menu?"})
+    assert response.status_code == 200
+    assert "don't have verified operational evidence" in response.json()["answer"].lower()
 
 
 def test_walt_previews_then_confirms_audited_notification_to_exact_approver(client, login_as):

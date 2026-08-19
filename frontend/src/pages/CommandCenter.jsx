@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { ArrowUpRight, CircleAlert, Radio, ScanLine, Sparkles } from 'lucide-react'
+import { ArrowUpRight, CircleAlert, ScanLine, Sparkles } from 'lucide-react'
 import { AgentStatus } from '../components/AgentStatus'
 import { MetricCard } from '../components/MetricCard'
 import { OperationsKpiCharts } from '../components/OperationsKpiCharts'

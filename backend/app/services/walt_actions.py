@@ -71,13 +71,14 @@ def _identity_context(repo, principal: dict[str, Any]) -> dict[str, Any]:
     def person(row: UserModel | None) -> dict[str, Any] | None:
         if not row or not row.is_active:
             return None
-        return {"user_id": row.user_id, "display_name": row.display_name, "role": row.role}
+        return {"user_id": row.user_id, "display_name": row.display_name, "email": row.email, "role": row.role}
 
     role = str(principal.get("role") or "")
     return {
         "user": {
             "user_id": principal.get("user_id"),
             "display_name": principal.get("display_name"),
+            "email": principal.get("email"),
             "role": role,
             "role_label": ROLE_SCOPE.get(role, {}).get("label", role.replace("_", " ").title()),
         },
@@ -89,14 +90,46 @@ def _identity_context(repo, principal: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _intent(message: str) -> str | None:
-    text = " ".join(message.lower().split())
+def _intent(message: str, history: list[Any] | None = None) -> str | None:
+    text = " ".join(message.lower().split()).strip()
+    recent = " ".join(str(turn.get("content", "") if isinstance(turn, dict) else getattr(turn, "content", "")) for turn in (history or [])).lower()
+
+    # Keep lightweight conversation in the governed resolver. This prevents a
+    # greeting or a capabilities question from being misread as an anomaly
+    # search, while the live-data answers below remain authorization-bound.
+    if re.fullmatch(r"(?:hi|hello|hey|hiya|good morning|good afternoon|good evening|how are you|how's it going)(?:\s+walt)?[!.? ]*", text):
+        return "greeting"
+    if re.fullmatch(r"(?:thanks|thank you|thx|cheers|got it|perfect|that helps)[!.? ]*", text):
+        return "thanks"
+    if any(term in text for term in ("what can you do", "what do you do", "how can you help", "help me", "help with", "capabilities")):
+        return "help"
+    if re.search(r"\b(?:send|forward|write)\s+(?:an?\s+)?email\b", text) or (re.match(r"^(?:email|mail)\s+(?:my\s+)?(?:manager|supervisor|boss)\b", text) and not re.search(r"\b(?:address|email|e-mail|mail|contact|details)\b", text)):
+        return "email_unavailable"
     if "escalat" in text:
         return "escalation"
-    if any(term in text for term in ("remind", "notify", "ping", "nudge", "alert the approver", "pin my manager", "pin the approver")):
+    if re.search(r"\b(?:remind|notify|ping|nudge|alert)\b", text):
         return "reminder"
-    if any(term in text for term in ("who is my manager", "manager name", "who do i report", "reporting manager", "my escalation owner")):
+    if any(term in text for term in ("i don't understand", "i do not understand", "that answer is wrong", "not helpful", "wrong answer", "try again")):
+        return "correction"
+
+    manager_words = r"(?:manager|supervisor|boss|line manager|reporting manager)"
+    manager_question = (
+        re.search(rf"\bwho(?:'s| is)\s+(?:my\s+)?(?:direct\s+)?{manager_words}\b", text)
+        or re.search(r"\bwho\s+do\s+i\s+report\s+to\b", text)
+        or re.search(rf"\b(?:my|direct|line|reporting)\s+{manager_words}\b", text)
+        or re.search(rf"\b{manager_words}(?:'s|s)?\s+(?:name|email|e-mail|mail|address|contact|details)\b", text)
+        or re.search(rf"\b(?:name|email|e-mail|mail|address|contact|details)\s+(?:of|for)\s+(?:my\s+)?{manager_words}\b", text)
+        or text in {"manager", "my manager", "supervisor", "my supervisor", "boss", "my boss"}
+    )
+    contact_followup = bool(re.search(r"\b(?:email|e-mail|mail|address|contact|phone|number|details)\b", text))
+    if contact_followup and re.search(r"\b(?:him|her|them|their|that person)\b", text) and re.search(r"\bescalation owner\b", recent):
+        return "escalation_owner"
+    if manager_question or (contact_followup and re.search(r"\b(?:him|her|them|their|that person)\b", text) and re.search(rf"\b{manager_words}\b|\breport\b|\bescalation owner\b", recent)):
         return "manager"
+    if re.search(r"\bwho am i\b|\bwhat(?:'s| is) my (?:name|email|account|user id)\b|\bmy account details\b", text):
+        return "identity"
+    if re.search(r"\b(?:who is|what is) my escalation owner\b|\bmy escalation owner(?:'s|s)?\s+(?:name|email|e-mail|mail|contact|details)\b", text):
+        return "escalation_owner"
     if any(term in text for term in ("my scope", "what is my scope", "my permission", "what can i do", "what am i allowed", "my role")):
         return "scope"
     if any(term in text for term in ("my approval queue", "what needs my approval", "assigned to me", "my decisions")):
@@ -106,6 +139,17 @@ def _intent(message: str) -> str | None:
     if re.search(r"\b(approve|reject|return|cancel|delegate|apply)\b", text):
         return "restricted_decision"
     return None
+
+
+def _mentions_manager(message: str) -> bool:
+    return bool(re.search(r"\b(?:my|the|to my|him|her|their)\s+(?:manager|supervisor|boss|line manager|reporting manager)\b|\bwho do i report to\b", message.lower()))
+
+
+def _manager_summary(identity: dict[str, Any]) -> str:
+    manager = identity.get("manager")
+    if not manager:
+        return "No active reporting manager is configured for your account."
+    return f"Your reporting manager is **{manager['display_name']}** ({_role_label(manager['role'])}) at **{manager['email']}**."
 
 
 def _request_choices(requests: list[dict[str, Any]], action: str | None = None) -> list[dict[str, str]]:
@@ -162,25 +206,78 @@ def _clarification(action_label: str, choices: list[dict[str, str]]) -> dict[str
     }
 
 
-def resolve_walt_command(message: str, request_id: str | None, principal: dict[str, Any], repo) -> dict[str, Any]:
+def _role_label(role: str) -> str:
+    return ROLE_SCOPE.get(role, {}).get("label", role.replace("_", " ").title())
+
+
+def resolve_walt_command(message: str, request_id: str | None, principal: dict[str, Any], repo, history: list[Any] | None = None) -> dict[str, Any]:
     """Resolve a WALT command without giving the model mutation authority."""
-    intent = _intent(message)
+    intent = _intent(message, history)
     if not intent:
         return {"handled": False}
 
     identity = _identity_context(repo, principal)
-    requests = list_requests(repo, principal)
+    if intent == "email_unavailable":
+        return {
+            "handled": True,
+            "type": "unsupported",
+            "answer": f"{_manager_summary(identity)} I can show the address, but outbound email delivery is not connected yet. I can prepare a governed in-app reminder or escalation when you provide a request.",
+        }
 
-    if intent == "manager":
+    if intent == "correction":
+        return {
+            "handled": True,
+            "type": "conversation",
+            "answer": "Thanks for flagging that. Tell me what part was wrong, or ask me to re-check the live evidence with the request ID or finding ID.",
+        }
+
+    if intent == "greeting":
+        return {
+            "handled": True,
+            "type": "conversation",
+            "answer": "Hi — I’m WALT. I can help with live operational risks, your identity and reporting line, approval ownership, request status, and governed reminders or escalations.",
+        }
+
+    if intent == "thanks":
+        return {
+            "handled": True,
+            "type": "conversation",
+            "answer": "You’re welcome. I’m here whenever you need a live operations check or want me to explain the next governed step.",
+        }
+
+    if intent == "help":
+        return {
+            "handled": True,
+            "type": "conversation",
+            "answer": "You can ask me things like **“Who is my manager and what is their email?”**, **“What is my role and site scope?”**, **“Who owns CR-123?”**, **“What needs my approval?”**, or **“Remind the current approver”**. I answer identity and workflow questions from live records, and I always ask for confirmation before sending a notification.",
+        }
+
+    if intent == "identity":
+        user = identity["user"]
+        site_names = ", ".join(site["name"] for site in identity["sites"]) or "No active site"
+        answer = (
+            f"You’re **{user['display_name']}** ({user['email']}). "
+            f"Your role is **{user['role_label']}**, and your authorized site scope is **{site_names}**."
+        )
+        return {"handled": True, "type": "identity", "answer": answer, "identity": identity}
+
+    if intent in {"manager", "escalation_owner"}:
         manager = identity["manager"]
         escalation_owner = identity["escalation_owner"]
-        if not manager:
-            answer = "No active reporting manager is configured for your account. Ask an administrator to set your reporting relationship before WALT routes a personal escalation."
+        person = escalation_owner if intent == "escalation_owner" else manager
+        label = "escalation owner" if intent == "escalation_owner" else "reporting manager"
+        if not person:
+            answer = f"No active {label} is configured for your account. Ask an administrator to set the relationship before WALT routes a personal escalation."
         else:
-            answer = f"Your reporting manager is **{manager['display_name']}** ({manager['role'].replace('_', ' ').title()})."
-            if escalation_owner and escalation_owner["user_id"] != manager["user_id"]:
-                answer += f" Your configured escalation owner is **{escalation_owner['display_name']}** ({escalation_owner['role'].replace('_', ' ').title()})."
+            answer = (
+                f"Your {label} is **{person['display_name']}** ({_role_label(person['role'])}). "
+                f"Their email is **{person['email']}**."
+            )
+            if intent == "manager" and escalation_owner and escalation_owner["user_id"] != manager["user_id"]:
+                answer += f" Your configured escalation owner is **{escalation_owner['display_name']}** ({_role_label(escalation_owner['role'])}) at **{escalation_owner['email']}**."
         return {"handled": True, "type": "identity", "answer": answer, "identity": identity}
+
+    requests = list_requests(repo, principal)
 
     if intent == "scope":
         rule = identity["scope_rule"]
@@ -222,7 +319,7 @@ def resolve_walt_command(message: str, request_id: str | None, principal: dict[s
         owner = _owner(repo, selected)
         active = selected.get("active_step") or {}
         if owner:
-            owner_text = f"**{owner['display_name']}** ({owner['role'].replace('_', ' ').title()})"
+            owner_text = f"**{owner['display_name']}** ({_role_label(owner['role'])})"
         else:
             owner_text = "no active named approver"
         answer = (
@@ -236,7 +333,9 @@ def resolve_walt_command(message: str, request_id: str | None, principal: dict[s
     required_action = "prepare_escalation" if kind == "escalation" else "send_reminder"
     selected, choices = _select_request(message, request_id, requests, required_action)
     if not selected:
-        return _clarification("prepare that escalation" if kind == "escalation" else "notify the current approver", choices)
+            result = _clarification("prepare that escalation" if kind == "escalation" else "notify the current approver", choices)
+            if _mentions_manager(message): result["answer"] = f"{_manager_summary(identity)}\n\n{result['answer']}"
+            return result
 
     try:
         preview = prepare_workflow_action(selected["request_id"], kind, {"reason": message}, principal, repo)
@@ -252,6 +351,7 @@ def resolve_walt_command(message: str, request_id: str | None, principal: dict[s
         f"It concerns the **{stage}** stage at **{selected.get('site_id')}**.\n\n"
         "Confirm below to send the in-app notification immediately. This will not approve, reject, or bypass the current stage."
     )
+    if _mentions_manager(message): answer = f"{_manager_summary(identity)}\n\n{answer}"
     return {
         "handled": True,
         "type": "action_preview",

@@ -38,6 +38,8 @@ export function WaltPanel({
   messages,
   onClearChat,
   onClose,
+  onCancel,
+  onFeedback,
   onConfirmAction,
   onDismissAction,
   onInput,
@@ -112,6 +114,7 @@ export function WaltPanel({
         onChoice={(prompt) => onSend(prompt)}
         onConfirmAction={onConfirmAction}
         onDismissAction={onDismissAction}
+        onFeedback={onFeedback}
       />)}
     </div>
 
@@ -124,7 +127,7 @@ export function WaltPanel({
       <button type="button" disabled={!lastQuestion || loading} onClick={onRetry}><RefreshCw size={12} />Retry</button>
     </div>}
 
-    <form className="walt-chat-form" onSubmit={(event) => { event.preventDefault(); onSend() }}>
+    <form className="walt-chat-form" onSubmit={(event) => { event.preventDefault(); if (!loading) onSend() }}>
       <input
         value={input}
         onFocus={onInputFocus}
@@ -133,7 +136,9 @@ export function WaltPanel({
         placeholder="Ask WALT about current operations…"
         aria-label="Ask WALT"
       />
-      <button type="submit" disabled={loading || !input.trim()} aria-label="Send to WALT"><span>Send</span><ArrowUp size={15} /></button>
+      {loading
+        ? <button type="button" className="cancel" onClick={onCancel} aria-label="Cancel WALT request"><span>Cancel</span><X size={15} /></button>
+        : <button type="submit" disabled={!input.trim()} aria-label="Send to WALT"><span>Send</span><ArrowUp size={15} /></button>}
     </form>
 
     <footer className="walt-panel-footer">

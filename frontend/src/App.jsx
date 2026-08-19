@@ -69,7 +69,7 @@ export default function App() {
     } catch (cause) { setError(`Warehouse Control Tower AI could not reach its operations API. ${cause.message}`) } finally { setLoading(false) }
   }, [principal])
   const refreshFromEvent = useCallback(async (message) => {
-    if (!['action_applied', 'scan_complete', 'document_ingested', 'approval_decided', 'change_applied', 'change_verified', 'approval_stage_activated', 'change_submitted', 'change_rejected', 'change_returned', 'change_rollback', 'change_cancelled'].includes(message.type)) return
+    if (!['action_applied', 'scan_complete', 'document_ingested', 'approval_decided', 'change_applied', 'change_verified', 'approval_stage_activated', 'change_submitted', 'change_rejected', 'change_returned', 'change_rollback', 'change_cancelled', 'reminder_confirmed', 'escalation_confirmed'].includes(message.type)) return
     try {
       const [nextDashboard, nextAnomalies, nextDocuments, nextAlerts, nextOutcomes, nextChanges, nextNotifications] = await Promise.all([api.dashboard(), api.anomalies(), api.documents(), api.alerts(), api.outcomes(), principal ? api.changes().catch(() => ({ items: [] })) : Promise.resolve({ items: [] }), principal ? api.notifications().catch(() => ({ items: [] })) : Promise.resolve({ items: [] })])
       setDashboard(nextDashboard); setAnomalies(nextAnomalies.items); setDocumentData(nextDocuments); setAlerts(nextAlerts.items); setOutcomeData(nextOutcomes); setChangeRequests(nextChanges.items || []); setNotifications(nextNotifications.items || []); if (principal) setWorkflowData(await api.workflowSummary().catch(() => null))
@@ -109,13 +109,15 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
   useEffect(() => {
+    if (!principal) return undefined
     let socket; let retry; let disposed = false
     const connect = () => {
       // When the API lives on another origin (deployed split), derive the WS
       // endpoint from VITE_API_URL; locally the Vite proxy forwards /ws.
       const apiBase = import.meta.env.VITE_API_URL
       const wsBase = apiBase ? apiBase.replace(/^http/, 'ws') : `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`
-      socket = new WebSocket(`${wsBase}/ws/operations`)
+      const token = session()?.session_token
+      socket = new WebSocket(`${wsBase}/ws/operations${token ? `?token=${encodeURIComponent(token)}` : ''}`)
       socket.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data)
@@ -129,7 +131,7 @@ export default function App() {
     }
     connect()
     return () => { disposed = true; window.clearTimeout(retry); socket?.close() }
-  }, [refreshFromEvent])
+  }, [principal, refreshFromEvent])
   const navigate = (next) => { window.location.hash = next; setPage(next); setSidebarOpen(false); window.scrollTo({ top: 0, behavior: 'smooth' }) }
   const selectAnomaly = async (candidate) => { const id = candidate?.id; if (!id) return; try { const full = candidate?.actions ? candidate : await api.anomaly(id); setDrawer(full) } catch (cause) { setToast(cause.message) } }
   const applyAction = async (anomalyId, actionId) => { setApplying(true); try { const preview = await api.changePreview({ anomaly_id: anomalyId, action_id: actionId }); const draft = await api.createChange(preview); const request = await api.submitChange(draft.request_id); setChangeRequests((current) => [request, ...current.filter((item) => item.request_id !== request.request_id)]); setChangeFocus(request.request_id); setToast(`${request.request_id} sent to ${request.current_owner?.label || 'the next approver'}`); setDrawer(null); navigate('changes') } catch (cause) { setToast(cause.message) } finally { setApplying(false) } }
@@ -158,7 +160,7 @@ export default function App() {
   const fallbackWorkflowPreview = !currentRequest && openAlerts[0] ? { severity: openAlerts[0].severity, impact_euros: openAlerts[0].impact, title: openAlerts[0].title } : null
   // The landing page owns the full viewport — no sidebar, topbar or drawers.
   if (page === 'home') return <Landing onEnter={() => navigate(principal ? 'command' : 'signin')} theme={theme} onToggleTheme={toggleTheme} />
-  if (page === 'signin' || !principal) return <SignIn onSignedIn={(user) => { setPrincipal(user); navigate('command') }} />
+  if (page === 'signin' || !principal) return <SignIn onSignedIn={(user) => { setPrincipal(user); navigate(page === 'signin' ? 'command' : page) }} />
   return <div className="app-shell">
     {sidebarOpen && <div className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} aria-hidden="true" />}
     <div className={`sidebar-wrap ${sidebarOpen ? 'open' : ''}`}><Sidebar activePage={visiblePage} onNavigate={navigate} alertCount={openAlerts.length} onClose={() => setSidebarOpen(false)} principal={principal} onSignOut={async () => { await api.signOut().catch(() => null); clearSession(); setPrincipal(null); navigate('signin') }} /></div>
@@ -177,6 +179,7 @@ export default function App() {
       onChatStream={api.chatStream}
       onWaltResolve={api.waltResolve}
       onWaltConfirm={api.confirmWaltAction}
+      onWaltFeedback={api.waltFeedback}
       requestId={currentRequest?.request_id}
       requestActions={currentRequest?.allowed_actions || []}
       riskCount={escalationCount}

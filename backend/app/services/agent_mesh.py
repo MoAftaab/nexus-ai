@@ -463,9 +463,104 @@ def _evidence_packet(store: OperationsStore, request: ChatRequest) -> tuple[str,
 # Query-aware operational evidence engine (no API key required)
 # ---------------------------------------------------------------------------
 
+OPERATIONAL_TERMS = {
+    "risk", "risks", "finding", "findings", "anomaly", "anomalies", "exposure", "control",
+    "document", "documents", "scan", "operations", "operational", "approval", "approver",
+    "request", "workflow", "queue", "assigned", "owner", "status", "evidence", "impact",
+    "value", "sla", "urgent", "priority", "incident", "inventory", "dispatch", "supplier",
+}
+
+
+def _looks_operational(question: str) -> bool:
+    terms = {term.lower() for term in re.findall(r"[A-Za-z0-9_-]+", question)}
+    return bool(terms & OPERATIONAL_TERMS)
+
+
+def _unsupported_response() -> ChatResponse:
+    return ChatResponse(
+        answer=(
+            "I don't have verified operational evidence for that question yet. "
+            "Ask me about current risks, findings, controls, documents, approvals, "
+            "request status, your manager, or your site scope."
+        ),
+        source="operational_evidence", cited_anomaly_ids=[], suggested_actions=[],
+        confidence="low", source_refs=[],
+    )
+
+
+def _document_response(store: OperationsStore) -> ChatResponse:
+    payload = store.documents()
+    names = [str(item.get("filename") or item.get("document_id")) for item in payload.get("items", []) if item.get("filename") or item.get("document_id")]
+    listed = ", ".join(names[:6]) or "No ingested documents are available"
+    return ChatResponse(
+        answer=(
+            f"I can see **{len(names)}** indexed document records. The first available sources are: {listed}. "
+            "Tell me the finding or request ID if you want me to connect a document to a specific decision."
+        ),
+        source="operational_evidence", cited_anomaly_ids=[], suggested_actions=[],
+        confidence="medium", source_refs=names[:6],
+    )
+
+
+def _scan_delta_response(store: OperationsStore) -> ChatResponse:
+    dashboard = store.dashboard()
+    return ChatResponse(
+        answer=(
+            "I don’t retain a prior scan snapshot for a trustworthy before/after comparison yet. "
+            f"The current board is scan **{dashboard['scan_count']}**, last refreshed **{dashboard['last_scan']}**, "
+            f"with **{sum(dashboard['severity_counts'].values())}** active findings."
+        ),
+        source="operational_evidence", cited_anomaly_ids=[], suggested_actions=["Run a fresh scan"],
+        confidence="high", source_refs=[f"SCAN-{dashboard['scan_count']}"]
+    )
+
+
+def _needs_deterministic_answer(request: ChatRequest) -> bool:
+    question = request.message.lower()
+    return (
+        not _looks_operational(request.message)
+        or (bool(re.search(r"\bdocuments?\b", question)) and not request.workflow_context)
+        or bool(re.search(r"\b(?:what|which).{0,20}(?:changed|change).{0,20}(?:last|previous|prior)\b", question))
+    )
+
+
+def _validate_model_answer(answer: str | None, required_refs: list[str] | None = None) -> bool:
+    if not answer or not answer.strip():
+        return False
+    # The model must never turn a recommendation or preview into a claim that
+    # a source change or notification already happened.
+    if re.search(r"\b(?:I|WALT)\s+(?:have\s+)?(?:executed|approved|sent|applied|changed)\b", answer, re.IGNORECASE):
+        return False
+    return not required_refs or any(reference in answer for reference in required_refs)
+
 
 def deterministic_mesh(request: ChatRequest, store: OperationsStore) -> ChatResponse:
     """Synthesize a complete answer directly from current verified records."""
+    question = request.message.lower()
+    if not _looks_operational(request.message):
+        return _unsupported_response()
+    if re.search(r"\bdocuments?\b", question) and not request.workflow_context:
+        return _document_response(store)
+    if re.search(r"\b(?:what|which).{0,20}(?:changed|change).{0,20}(?:last|previous|prior)\b", question):
+        return _scan_delta_response(store)
+    if request.workflow_context and re.search(r"\b(?:summari[sz]e|one sentence|briefly)\b", question):
+        context = request.workflow_context
+        return ChatResponse(
+            answer=(
+                f"{context.get('request_id')} is **{str(context.get('status') or 'unknown').replace('_', ' ')}** for "
+                f"{context.get('title') or 'the selected change'}, currently assigned to "
+                f"{', '.join((context.get('current_owner') or {}).get('user_ids') or []) or 'no named approver'}."
+            ),
+            source="operational_evidence", cited_anomaly_ids=[], suggested_actions=list(context.get("allowed_actions") or [])[:3],
+            confidence="high", source_refs=[str(context.get("request_id"))],
+        )
+    if request.workflow_context and re.search(r"\b(?:why|cannot|can't|can not).{0,30}\bapprove\b", question):
+        context = request.workflow_context
+        reasons = list(context.get("denial_reasons") or [])
+        answer = "You cannot approve this request from the current signed-in context. " + (" ".join(reasons) if reasons else "The server has not granted the approve action to your exact assignment.")
+        return ChatResponse(
+            answer=answer, source="operational_evidence", cited_anomaly_ids=[], suggested_actions=[], confidence="high", source_refs=[str(context.get("request_id"))],
+        )
     _, markdown, ids = _evidence_packet(store, request)
     related = [store.anomaly(item_id) for item_id in ids]
     related = [item for item in related if item]
@@ -506,11 +601,11 @@ def deterministic_mesh(request: ChatRequest, store: OperationsStore) -> ChatResp
             "WALT reports the server-evaluated assignment only. A matching job title is not enough: only the exact assigned account can approve or reject the active stage."
         )
         trace.append({"agent": "Governance", "role": "Workflow authorization", "status": "verified", "detail": f"Evaluated {context.get('request_id')} for the signed-in principal"})
-        return ChatResponse(answer=answer, source="operational_evidence", cited_anomaly_ids=[], suggested_actions=actions[:3], agent_trace=trace)
+        return ChatResponse(answer=answer, source="operational_evidence", cited_anomaly_ids=[], suggested_actions=actions[:3], agent_trace=trace, confidence="high", source_refs=[context.get("request_id", "")])
     if lead is None:
         return ChatResponse(
             answer="No active findings are on the board right now. All monitored source systems are inside their thresholds; run a scan or upload a document to re-check.",
-            source="operational_evidence", cited_anomaly_ids=[], suggested_actions=[], agent_trace=trace,
+            source="operational_evidence", cited_anomaly_ids=[], suggested_actions=[], agent_trace=trace, confidence="high", source_refs=[],
         )
 
     open_findings = [item for item in store.anomalies() if item.status != "resolved"]
@@ -545,7 +640,7 @@ def deterministic_mesh(request: ChatRequest, store: OperationsStore) -> ChatResp
         f"\n\n**Live board context:** {len(open_findings)} open findings represent €{total_exposure:,} "
         "in current modeled exposure. Figures above are taken from the live anomaly and evidence records."
     )
-    return ChatResponse(answer=answer, source="operational_evidence", cited_anomaly_ids=ids, suggested_actions=actions, agent_trace=trace)
+    return ChatResponse(answer=answer, source="operational_evidence", cited_anomaly_ids=ids, suggested_actions=actions, agent_trace=trace, confidence="high", source_refs=ids)
 
 
 # ---------------------------------------------------------------------------
@@ -657,7 +752,7 @@ def _build_trace(handoffs, markdown, include_orchestrator: bool = False) -> list
 
 async def run_agent_mesh(request: ChatRequest, store: OperationsStore, settings: Settings) -> ChatResponse:
     """Run all specialist roles in parallel and synthesize their audited handoff."""
-    if not settings.openai_api_key:
+    if not settings.openai_api_key or _needs_deterministic_answer(request):
         return deterministic_mesh(request, store)
     from openai import AsyncOpenAI
 
@@ -676,12 +771,16 @@ async def run_agent_mesh(request: ChatRequest, store: OperationsStore, settings:
         relevant = [store.anomaly(item_id) for item_id in ids]
         actions = [action.title for item in relevant if item for action in item.actions][:3]
         trace = _build_trace(handoffs, markdown, include_orchestrator=True)
+        if not _validate_model_answer(final.output_text, ids):
+            return deterministic_mesh(request, store)
         return ChatResponse(
-            answer=final.output_text,
+            answer=final.output_text.strip(),
             source="openai",
             cited_anomaly_ids=ids,
             suggested_actions=actions,
             agent_trace=trace,
+            confidence="medium" if ids else "low",
+            source_refs=ids,
         )
     except Exception as exc:
         logger.exception("OpenAI agent mesh failed; serving current operational evidence: %s", exc)
@@ -690,12 +789,12 @@ async def run_agent_mesh(request: ChatRequest, store: OperationsStore, settings:
 
 async def stream_agent_mesh(request: ChatRequest, store: OperationsStore, settings: Settings) -> AsyncIterator[str]:
     """SSE stream: specialist handoff trace first, then token deltas from the orchestrator."""
-    if not settings.openai_api_key:
+    if not settings.openai_api_key or _needs_deterministic_answer(request):
         evidence = deterministic_mesh(request, store)
         yield f"event: trace\ndata: {json.dumps(evidence.agent_trace)}\n\n"
         for word in evidence.answer.split(" "):
             yield f"event: delta\ndata: {json.dumps({'text': word + ' '})}\n\n"
-        yield f"event: done\ndata: {json.dumps({'source': evidence.source, 'cited_anomaly_ids': evidence.cited_anomaly_ids, 'suggested_actions': evidence.suggested_actions})}\n\n"
+        yield f"event: done\ndata: {json.dumps({'source': evidence.source, 'cited_anomaly_ids': evidence.cited_anomaly_ids, 'suggested_actions': evidence.suggested_actions, 'confidence': evidence.confidence, 'source_refs': evidence.source_refs})}\n\n"
         return
 
     from openai import AsyncOpenAI
@@ -715,16 +814,24 @@ async def stream_agent_mesh(request: ChatRequest, store: OperationsStore, settin
             instructions=ORCHESTRATOR_PROMPT,
             input=f"OPERATOR QUESTION\n{request.message}\n\nSPECIALIST HANDOFFS\n{synthesis_input}",
         )
+        chunks = []
         async for event in stream:
             if event.type == "response.output_text.delta":
+                chunks.append(event.delta)
                 yield f"event: delta\ndata: {json.dumps({'text': event.delta})}\n\n"
 
+        if not _validate_model_answer("".join(chunks), ids):
+            evidence = deterministic_mesh(request, store)
+            yield f"event: reset\ndata: {json.dumps({'text': evidence.answer})}\n\n"
+            yield f"event: trace\ndata: {json.dumps(evidence.agent_trace)}\n\n"
+            yield f"event: done\ndata: {json.dumps({'source': evidence.source, 'cited_anomaly_ids': evidence.cited_anomaly_ids, 'suggested_actions': evidence.suggested_actions, 'confidence': evidence.confidence, 'source_refs': evidence.source_refs})}\n\n"
+            return
         relevant = [store.anomaly(item_id) for item_id in ids]
         actions = [action.title for item in relevant if item for action in item.actions][:3]
-        yield f"event: done\ndata: {json.dumps({'source': 'openai', 'cited_anomaly_ids': ids, 'suggested_actions': actions})}\n\n"
+        yield f"event: done\ndata: {json.dumps({'source': 'openai', 'cited_anomaly_ids': ids, 'suggested_actions': actions, 'confidence': 'medium' if ids else 'low', 'source_refs': ids})}\n\n"
     except Exception as exc:
         logger.exception("Streaming agent mesh failed; switching to current operational evidence: %s", exc)
         evidence = deterministic_mesh(request, store)
         yield f"event: reset\ndata: {json.dumps({'text': evidence.answer})}\n\n"
         yield f"event: trace\ndata: {json.dumps(evidence.agent_trace)}\n\n"
-        yield f"event: done\ndata: {json.dumps({'source': evidence.source, 'cited_anomaly_ids': evidence.cited_anomaly_ids, 'suggested_actions': evidence.suggested_actions})}\n\n"
+        yield f"event: done\ndata: {json.dumps({'source': evidence.source, 'cited_anomaly_ids': evidence.cited_anomaly_ids, 'suggested_actions': evidence.suggested_actions, 'confidence': evidence.confidence, 'source_refs': evidence.source_refs})}\n\n"

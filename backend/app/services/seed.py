@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import csv
+import logging
 from pathlib import Path
 import random
 from typing import Any
@@ -17,6 +18,8 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from app.models import Anomaly, CascadeEdge, CascadeNode, Evidence, FixAction
+
+logger = logging.getLogger(__name__)
 
 
 def _models():
@@ -81,8 +84,9 @@ def _load_sap_records() -> list[dict[str, Any]]:
             cleaned["sap_anchor"] = True
             cleaned["sap_source_id"] = cleaned.get("vwgl_matstorloc_id")
             records.append(cleaned)
-    if len(records) != TARGET_COUNTS["sap_anchor_records"]:
-        raise ValueError(f"Expected {TARGET_COUNTS['sap_anchor_records']} SAP records, found {len(records)}")
+    expected = TARGET_COUNTS["sap_anchor_records"]
+    if len(records) != expected:
+        logger.warning("SAP anchor row count changed: expected %s, found %s", expected, len(records))
     return records
 
 

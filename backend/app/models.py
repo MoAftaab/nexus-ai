@@ -45,6 +45,7 @@ class CascadeEdge(BaseModel):
 
 class Anomaly(BaseModel):
     id: str
+    site_id: str = "wolfsburg"
     title: str
     type: str
     severity: Severity
@@ -79,9 +80,21 @@ class ChatRequest(BaseModel):
 
 
 class WaltCommandRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
     message: str = Field(min_length=1, max_length=4000)
+    # The resolver uses the recent turns only to understand natural follow-ups
+    # such as “mail of him?” after “Who is my manager?”. It never treats this
+    # client-provided history as authorization or workflow state.
+    history: list[ChatTurn] = Field(default_factory=list, max_length=12)
     request_id: str | None = Field(default=None, max_length=80)
+
+
+class WaltFeedbackRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    message_id: str = Field(min_length=1, max_length=100)
+    rating: Literal["helpful", "not_helpful"]
+    question: str = Field(default="", max_length=4000)
+    answer: str = Field(default="", max_length=10000)
 
 
 class ChatResponse(BaseModel):
@@ -90,6 +103,8 @@ class ChatResponse(BaseModel):
     cited_anomaly_ids: list[str]
     suggested_actions: list[str]
     agent_trace: list[dict[str, str]] = Field(default_factory=list)
+    confidence: Literal["high", "medium", "low"] = "medium"
+    source_refs: list[str] = Field(default_factory=list)
 
 
 class DetailRequestInput(BaseModel):

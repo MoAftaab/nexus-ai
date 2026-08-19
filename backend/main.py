@@ -5,6 +5,7 @@ from copy import deepcopy
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+import uuid
 
 from fastapi import FastAPI, File, Header, HTTPException, Query, UploadFile, WebSocket
 from fastapi.responses import FileResponse, Response, StreamingResponse
@@ -14,7 +15,7 @@ from sqlalchemy import select
 from app.config import get_settings
 from app.models import (
     ChatRequest, DelegationInput, DetailRequestInput, DetailResponseInput,
-    WaltCommandRequest, WorkflowConfirmationInput, WorkflowPreviewInput,
+    WaltCommandRequest, WaltFeedbackRequest, WorkflowConfirmationInput, WorkflowPreviewInput,
 )
 from app.services.operations import OperationsStore
 from app.services.document_parser import inspect_and_index
@@ -903,7 +904,19 @@ async def chat(request: ChatRequest, authorization: str | None = Header(default=
 @app.post("/api/walt/resolve")
 async def walt_resolve(request: WaltCommandRequest, authorization: str | None = Header(default=None)) -> dict[str, object]:
     """Resolve governed WALT commands before a prompt reaches the LLM mesh."""
-    return resolve_walt_command(request.message, request.request_id, current_user(authorization), store.repository)
+    return resolve_walt_command(request.message, request.request_id, current_user(authorization), store.repository, request.history)
+
+
+@app.post("/api/walt/feedback")
+async def walt_feedback(request: WaltFeedbackRequest, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    user = current_user(authorization)
+    store.repository.add_audit(
+        f"WALT-{uuid.uuid4().hex[:12].upper()}",
+        "walt_feedback",
+        str(user.get("email") or user.get("user_id") or "unknown"),
+        {"message_id": request.message_id, "rating": request.rating, "question": request.question, "answer": request.answer},
+    )
+    return {"recorded": True, "rating": request.rating}
 
 
 @app.post("/api/chat/stream")
@@ -932,7 +945,10 @@ async def inspect_document(file: UploadFile = File(...)) -> object:
 async def operations_socket(websocket: WebSocket) -> None:
     token = websocket.query_params.get("token")
     principal = principal_from_token(store.repository, token) if token else None
-    await event_bus.connect(websocket, principal.get("site_scopes") if principal else None)
+    if not principal:
+        await websocket.close(code=1008, reason="Authentication required")
+        return
+    await event_bus.connect(websocket, principal.get("site_scopes"))
     try:
         while True:
             dashboard_data = store.dashboard()

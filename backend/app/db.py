@@ -338,7 +338,7 @@ class Repository:
                 session.add(DocumentModel(run_id=run.id, document_id=document["id"], filename=f"{document['id']}.json", document_type=document.get("type", "Source control"), status="source", extracted_data=_jsonable(document), cross_check_results=[]))
             for anomaly in anomalies:
                 payload = anomaly.model_dump(mode="json")
-                session.add(AnomalyModel(run_id=run.id, anomaly_id=anomaly.id, severity=anomaly.severity, status=anomaly.status, impact=anomaly.impact, payload=payload, site_id="wolfsburg"))
+                session.add(AnomalyModel(run_id=run.id, anomaly_id=anomaly.id, severity=anomaly.severity, status=anomaly.status, impact=anomaly.impact, payload=payload, site_id=getattr(anomaly, "site_id", "wolfsburg")))
                 for action in anomaly.actions:
                     session.add(FixActionModel(anomaly_id=anomaly.id, action_id=action.id, status=action.status, payload=action.model_dump(mode="json"), site_id="wolfsburg"))
             return run.id
@@ -371,7 +371,7 @@ class Repository:
                     row.payload = payload; row.status = anomaly.status; row.severity = anomaly.severity; row.impact = anomaly.impact
                 else:
                     # Findings born after boot (live injections) must survive restarts.
-                    session.add(AnomalyModel(run_id=run_id, anomaly_id=anomaly.id, severity=anomaly.severity, status=anomaly.status, impact=anomaly.impact, payload=payload, site_id="wolfsburg"))
+                    session.add(AnomalyModel(run_id=run_id, anomaly_id=anomaly.id, severity=anomaly.severity, status=anomaly.status, impact=anomaly.impact, payload=payload, site_id=getattr(anomaly, "site_id", "wolfsburg")))
                 for action in anomaly.actions:
                     action_row = session.scalar(select(FixActionModel).where(FixActionModel.action_id == action.id))
                     if action_row:
