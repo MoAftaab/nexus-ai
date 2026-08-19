@@ -2,9 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   calculateWaltPopupPosition,
   clampWaltPosition,
-  findWaltRoamPosition,
   isDragGesture,
-  isWaltPositionClear,
   parseStoredWaltPosition,
   WALT_STORAGE_KEY,
 } from '../../utils/waltPosition'
@@ -15,7 +13,6 @@ import { buildWaltContextCards, isReviewContext } from './waltModel'
 import './walt.css'
 
 const SLEEP_AFTER_MS = 45000
-const WALT_OBSTACLES = '.sidebar-wrap, nav, form, button, input, textarea, select, [role="alert"], .topbar, .global-approval-flow, .metric-card, .value-signal-ribbon, .priority-queue, .toast, .anomaly-drawer, .notification-panel, .escalation-panel, [data-walt-obstacle]'
 const WALT_GREETING_COPY = [
   { lead: 'Hi! I’m', name: 'WALT', trail: '' },
   { lead: '', name: 'WALT', trail: ' here — monitoring the flow.' },
@@ -53,7 +50,6 @@ export function WaltAssistant({
   const [panelClosing, setPanelClosing] = useState(false)
   const [inputFocused, setInputFocused] = useState(false)
   const [dragging, setDragging] = useState(false)
-  const [roaming, setRoaming] = useState(false)
   const [dragState, setDragState] = useState('dragging')
   const [restingState, setRestingState] = useState('greeting')
   const [showGreeting, setShowGreeting] = useState(true)
@@ -72,8 +68,6 @@ export function WaltAssistant({
   const personalityTimerRef = useRef(null)
   const greetingIndexRef = useRef(0)
   const panelTimerRef = useRef(null)
-  const roamTimerRef = useRef(null)
-  const roamFinishRef = useRef(null)
   const openRef = useRef(open)
   const chat = useWaltChat(onChatStream, onWaltResolve, onWaltConfirm, onWaltFeedback, open, requestId)
   const contextCards = useMemo(() => buildWaltContextCards(dashboard, anomalies), [dashboard, anomalies])
@@ -112,12 +106,6 @@ export function WaltAssistant({
     }
   }, [])
 
-  const collectObstacles = useCallback(() => [...document.querySelectorAll(WALT_OBSTACLES)]
-    .filter((element) => !element.closest('.walt-assistant-shell') && window.getComputedStyle(element).display !== 'none')
-    .map((element) => element.getBoundingClientRect())
-    .filter((bounds) => bounds.width > 0 && bounds.height > 0)
-    .map(({ left, right, top, bottom }) => ({ left, right, top, bottom })), [])
-
   const keepPositionVisible = useCallback((desired, persist = true) => {
     const next = clampWaltPosition(
       desired,
@@ -146,8 +134,6 @@ export function WaltAssistant({
 
   const openPanel = useCallback(() => {
     window.clearTimeout(panelTimerRef.current)
-    window.clearTimeout(roamFinishRef.current)
-    setRoaming(false)
     setPanelClosing(false)
     setPanelMounted(true)
     setOpen(true)
@@ -173,8 +159,6 @@ export function WaltAssistant({
       window.clearTimeout(greetingTimerRef.current)
       window.clearTimeout(personalityTimerRef.current)
       window.clearTimeout(panelTimerRef.current)
-      window.clearTimeout(roamTimerRef.current)
-      window.clearTimeout(roamFinishRef.current)
     }
   }, [greet, keepPositionVisible, markActive, showTransient])
 
@@ -186,7 +170,7 @@ export function WaltAssistant({
       window.clearTimeout(personalityTimerRef.current)
       personalityTimerRef.current = window.setTimeout(() => {
         if (disposed) return
-        const busy = openRef.current || chat.loading || dragRef.current || shellRef.current?.classList.contains('is-roaming')
+        const busy = openRef.current || chat.loading || dragRef.current
         if (!busy && !document.hidden) {
           markActive()
           greet(true)
@@ -216,89 +200,8 @@ export function WaltAssistant({
   }, [riskCount, showTransient])
 
   useEffect(() => {
-    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
-    if (reducedMotion.matches) return undefined
-    let disposed = false
-    const schedule = () => {
-      window.clearTimeout(roamTimerRef.current)
-      roamTimerRef.current = window.setTimeout(() => {
-        if (disposed) return
-        if (!openRef.current && !document.hidden && !dragRef.current) {
-          const origin = positionRef.current
-          const target = findWaltRoamPosition(
-            origin,
-            viewportBounds(),
-            getMascotSize(),
-            collectObstacles(),
-          )
-          if (target.x !== origin.x || target.y !== origin.y) {
-            positionRef.current = target
-            setDragState(target.x < origin.x ? 'walking-left' : 'walking-right')
-            setRoaming(true)
-            setPosition(target)
-            setEdge(target.x < window.innerWidth / 2 ? 'left' : 'right')
-            roamFinishRef.current = window.setTimeout(() => {
-              setRoaming(false)
-              setDragState('dragging')
-            }, 1200)
-          }
-        }
-        schedule()
-      }, 22000 + Math.round(Math.random() * 9000))
-    }
-    schedule()
-    return () => {
-      disposed = true
-      window.clearTimeout(roamTimerRef.current)
-      window.clearTimeout(roamFinishRef.current)
-    }
-  }, [collectObstacles, getMascotSize])
-
-  useEffect(() => {
     if (isReviewContext(currentPage)) showTransient('review', 2400)
   }, [currentPage, showTransient])
-
-  // A saved manual position remains authoritative until a page change or an
-  // asynchronous render places a control underneath it. In that case WALT
-  // makes a temporary, non-persisted safety move and keeps the saved anchor.
-  useEffect(() => {
-    let frame = null
-    let settleTimer = null
-    const revalidate = () => {
-      window.cancelAnimationFrame(frame)
-      window.clearTimeout(settleTimer)
-      frame = window.requestAnimationFrame(() => {
-        settleTimer = window.setTimeout(() => {
-          if (openRef.current || dragRef.current) return
-          const size = getMascotSize()
-          const obstacles = collectObstacles()
-          const origin = positionRef.current
-          if (isWaltPositionClear(origin, size, obstacles)) return
-          const safe = findWaltRoamPosition(origin, viewportBounds(), size, obstacles, 220)
-          if (safe.x === origin.x && safe.y === origin.y) return
-          positionRef.current = safe
-          setDragState(safe.x < origin.x ? 'walking-left' : 'walking-right')
-          setRoaming(true)
-          setPosition(safe)
-          setEdge(safe.x < window.innerWidth / 2 ? 'left' : 'right')
-          roamFinishRef.current = window.setTimeout(() => { setRoaming(false); setDragState('dragging') }, 1200)
-        }, 80)
-      })
-    }
-    const content = document.querySelector('.main-shell')
-    const observer = content ? new MutationObserver(revalidate) : null
-    observer?.observe(content, { childList: true, subtree: true })
-    window.addEventListener('resize', revalidate)
-    window.visualViewport?.addEventListener('resize', revalidate)
-    revalidate()
-    return () => {
-      observer?.disconnect()
-      window.removeEventListener('resize', revalidate)
-      window.visualViewport?.removeEventListener('resize', revalidate)
-      window.cancelAnimationFrame(frame)
-      window.clearTimeout(settleTimer)
-    }
-  }, [collectObstacles, currentPage, getMascotSize])
 
   useEffect(() => {
     if (chat.activityState === 'success') showTransient('success', 1900)
@@ -314,26 +217,16 @@ export function WaltAssistant({
 
   const state = dragging
     ? dragState
-    : roaming
-      ? dragState
-      : chat.loading
-        ? chat.activityState
-        : (inputFocused || chat.input.trim())
-          ? 'listening'
-          : ['success', 'error'].includes(chat.activityState)
-            ? chat.activityState
-            : restingState
+    : chat.loading
+      ? chat.activityState
+      : (inputFocused || chat.input.trim())
+        ? 'listening'
+        : ['success', 'error'].includes(chat.activityState)
+          ? chat.activityState
+          : restingState
 
   const onPointerDown = (event) => {
     if (event.button !== 0) return
-    window.clearTimeout(roamFinishRef.current)
-    if (roaming) {
-      const bounds = shellRef.current?.getBoundingClientRect()
-      const captured = bounds ? { x: bounds.left, y: bounds.top } : positionRef.current
-      positionRef.current = captured
-      setPosition(captured)
-      setRoaming(false)
-    }
     markActive()
     event.currentTarget.setPointerCapture(event.pointerId)
     dragRef.current = {
@@ -374,12 +267,7 @@ export function WaltAssistant({
     const active = dragRef.current
     if (!active || active.pointerId !== event.pointerId) return
     if (active.dragged) {
-      const size = getMascotSize()
-      const released = positionRef.current
-      const validRelease = isWaltPositionClear(released, size, collectObstacles())
-        ? released
-        : findWaltRoamPosition(released, viewportBounds(), size, collectObstacles(), 110)
-      keepPositionVisible(validRelease)
+      keepPositionVisible(positionRef.current)
       suppressClickRef.current = true
       window.setTimeout(() => { suppressClickRef.current = false }, 0)
     }
@@ -407,20 +295,10 @@ export function WaltAssistant({
   )
   return <div
     ref={shellRef}
-    className={`walt-assistant-shell edge-${edge} popup-${popupPlacement.direction} ${open ? 'is-open' : ''} ${dragging ? 'is-dragging' : ''} ${roaming ? 'is-roaming' : ''}`}
+    className={`walt-assistant-shell edge-${edge} popup-${popupPlacement.direction} ${open ? 'is-open' : ''} ${dragging ? 'is-dragging' : ''}`}
     data-state={state}
     style={{ left: `${position.x}px`, top: `${position.y}px` }}
     onPointerEnter={() => {
-      window.clearTimeout(roamFinishRef.current)
-      if (roaming) {
-        const bounds = shellRef.current?.getBoundingClientRect()
-        if (bounds) {
-          const captured = { x: bounds.left, y: bounds.top }
-          positionRef.current = captured
-          setPosition(captured)
-        }
-      }
-      setRoaming(false)
       markActive()
       if (!open && restingState === 'sleeping') { greet(); showTransient('waking', 1300) }
     }}

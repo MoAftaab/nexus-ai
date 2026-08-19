@@ -15,7 +15,6 @@
 }
 
 .walt-assistant-shell.is-dragging { z-index: 46; transition: none; }
-.walt-assistant-shell.is-roaming { transition-duration: 1.15s; transition-timing-function: cubic-bezier(.22, .8, .24, 1); }
 
 .walt-mascot-button {
   position: relative;
