@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
-import { ArrowUpRight, CircleAlert, ScanLine, Sparkles } from 'lucide-react'
+import { ArrowUpRight, CircleAlert, Sparkles } from 'lucide-react'
 import { AgentStatus } from '../components/AgentStatus'
+import { CommandDecisionBoard } from '../components/CommandDecisionBoard'
 import { MetricCard } from '../components/MetricCard'
 import { OperationsKpiCharts } from '../components/OperationsKpiCharts'
 import { SystemExposureVisual } from '../components/SystemExposureVisual'
@@ -9,7 +10,7 @@ import { currency, timeAgo } from '../utils'
 import { buildExecutiveMetrics } from '../utils/dashboardKpis'
 
 
-export function CommandCenter({ dashboard, workflow, anomalies, onNavigate, onSelectAnomaly, onScan, scanning }) {
+export function CommandCenter({ dashboard, workflow, outcomes, anomalies, onNavigate, onSelectAnomaly, scanning }) {
   // Resolved findings stay in the payload for containment accounting; every
   // "act on this" surface shows open work only.
   const open = useMemo(() => anomalies?.filter((item) => item.status !== 'resolved') || [], [anomalies])
@@ -18,10 +19,10 @@ export function CommandCenter({ dashboard, workflow, anomalies, onNavigate, onSe
   return <div className="page command-page">
     <div className="command-toolbar">
       <span className="scan-state"><span className="pulse-dot" />Last scan {dashboard?.last_scan ? timeAgo(dashboard.last_scan) : 'now'}</span>
-      <button className="primary-button" onClick={onScan} disabled={scanning}><ScanLine size={16} />{scanning ? 'Scanning mesh…' : 'Run intelligence scan'}</button>
     </div>
     <section className={`metrics-grid ${scanning ? 'scanning' : ''}`}>{executiveMetrics.map((metric, index) => <MetricCard metric={metric} index={index} scanning={scanning} key={metric.label} />)}{scanning && <span className="radar-sweep" aria-hidden="true" />}</section>
     {workflow && <ValueSignalRibbon workflow={workflow} anomalies={anomalies} onOpenLedger={() => onNavigate('outcomes')} />}
+    <CommandDecisionBoard dashboard={dashboard} workflow={workflow} outcomes={outcomes} anomalies={anomalies} onNavigate={onNavigate} onSelectAnomaly={onSelectAnomaly} />
     <section className="command-grid">
       <OperationsKpiCharts anomalies={anomalies} workflow={workflow} onNavigate={onNavigate} />
       <aside className="risk-queue card-surface">

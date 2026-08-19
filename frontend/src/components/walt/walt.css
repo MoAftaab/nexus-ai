@@ -791,3 +791,34 @@
 [data-theme='dark'] .walt-chat-form input { color: #FFFFFF; background: #002733; }
 [data-theme='light'] .walt-chat-message.user,
 [data-theme='dark'] .walt-chat-message.user { color: #FFFFFF; border-color: #008C82; background: #008C82; }
+
+/* WALT is deliberately anchored: no dragging, roaming, sprite playback, or
+   decorative motion. The assistant may still open and close as a normal UI. */
+.walt-assistant-shell.walt-static {
+  top: auto !important;
+  right: 18px !important;
+  bottom: 16px !important;
+  left: auto !important;
+  transform: none !important;
+  transition: none !important;
+}
+.walt-assistant-shell.walt-static,
+.walt-assistant-shell.walt-static *,
+.walt-assistant-shell.walt-static::before,
+.walt-assistant-shell.walt-static::after {
+  animation: none !important;
+  transition: none !important;
+}
+.walt-assistant-shell.walt-static .walt-mascot-button,
+.walt-assistant-shell.walt-static .walt-mascot-button:hover,
+.walt-assistant-shell.walt-static .walt-mascot-button:active {
+  transform: none !important;
+  cursor: pointer;
+}
+.walt-assistant-shell.walt-static .walt-atlas-mascot,
+.walt-assistant-shell.walt-static .walt-atlas-mascot::after {
+  transform: none !important;
+}
+.walt-assistant-shell.walt-static .walt-atlas-frame {
+  background-position: 0 var(--walt-atlas-row) !important;
+}

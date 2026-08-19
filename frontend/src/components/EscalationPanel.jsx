@@ -17,7 +17,7 @@ export function EscalationPanel({ open, onClose, onSelectAnomaly }) {
       <div className="tour-head"><span className="eyebrow"><BellRing size={13} /> Shift-manager escalations</span><button className="icon-button" onClick={onClose} aria-label="Close escalations"><X size={14} /></button></div>
       {error && <p className="whatif-error">{error}</p>}
       {data && data.items.length === 0 && <p className="escalation-empty">No open critical or high findings — nobody needs to be woken up.</p>}
-      {data?.items.map((item) => <button key={item.id} className="escalation-card" onClick={() => { onSelectAnomaly?.({ id: item.id }); onClose() }}>
+      {data?.items.map((item) => <button key={item.id} className={`escalation-card escalation-${item.severity}`} onClick={() => { onSelectAnomaly?.({ id: item.id }); onClose() }}>
         <div className="escalation-meta"><span className={`severity-pill ${item.severity}`}>{item.severity}</span><span className="escalation-channel"><Hash size={11} />{item.channel.replace('#', '')}</span><span className="escalation-clock"><Clock size={11} />{item.time_to_impact}</span></div>
         <strong>{item.subject}</strong>
         <small>To: {item.to}</small>

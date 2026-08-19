@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildApprovalPipeline, buildExecutiveMetrics, buildExposureBySeverity, buildRiskTimeline, buildSystemExposure, buildValueSignals } from './dashboardKpis.js'
+import { buildApprovalPipeline, buildDataTrust, buildDecisionFocus, buildExecutiveMetrics, buildExposureBySeverity, buildInterventionSnapshot, buildRiskTimeline, buildSystemExposure, buildValueSignals } from './dashboardKpis.js'
 
 test('exposure by severity is calculated from live anomaly values', () => {
   const anomalies = [
@@ -85,4 +85,37 @@ test('value signals combine approval value and live risk timing without fixtures
     systemsAtRisk: 3,
     openFindings: 2,
   })
+})
+
+test('decision focus selects the nearest open finding and its live control', () => {
+  const focus = buildDecisionFocus([
+    { id: 'LATER', impact: 900, time_to_impact: '4h', status: 'open', actions: [{ title: 'Later control' }] },
+    { id: 'SOONER', impact: 200, time_to_impact: '20m', status: 'open', actions: [{ title: 'Protect dispatch' }] },
+  ], { awaiting_my_decision: 2, value_awaiting_approval: 500, verified_value_protected: 800 })
+  assert.equal(focus.anomaly.id, 'SOONER')
+  assert.equal(focus.action.title, 'Protect dispatch')
+  assert.equal(focus.awaitingValue, 500)
+  assert.equal(focus.protectedValue, 800)
+})
+
+test('intervention snapshot distinguishes verified outcomes from live exposure', () => {
+  assert.deepEqual(buildInterventionSnapshot(
+    { verified_value_protected: 600 },
+    { summary: { anomalies_resolved: 2 } },
+    [{ impact: 400, status: 'open' }, { impact: 100, status: 'resolved' }],
+  ), { protectedValue: 600, openExposure: 400, resolved: 2, active: 1, protectionRate: 60 })
+})
+
+test('data trust signals use live scan, evidence, and detector metadata', () => {
+  const trust = buildDataTrust({
+    scan_count: 17,
+    last_scan: '2026-08-20T10:00:00Z',
+    dataset: { records: 72900 },
+    ml_model: { f1: 0.91 },
+  }, [
+    { status: 'open', confidence: 94, evidence: [{ label: 'Source', value: 'WMS' }] },
+    { status: 'open', confidence: 86, evidence: [] },
+    { status: 'resolved', confidence: 99, evidence: [{ label: 'Source', value: 'ERP' }] },
+  ])
+  assert.deepEqual(trust, { records: 72900, scanCount: 17, lastScan: '2026-08-20T10:00:00Z', evidenceAttached: 1, findingCount: 2, averageConfidence: 90, modelF1: 91 })
 })

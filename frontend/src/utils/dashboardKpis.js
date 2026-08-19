@@ -125,3 +125,51 @@ export function buildExecutiveMetrics(dashboard = {}, anomalies = []) {
     { label: 'Containment rate', value: containment, format: 'percent', trend: `${resolved} of ${anomalies.length} findings resolved`, tone: 'good', detail: 'Verified controls only' },
   ]
 }
+
+export function buildDecisionFocus(anomalies = [], workflow = {}) {
+  const open = anomalies
+    .filter((item) => item.status !== 'resolved')
+    .map((item) => ({ ...item, impactMinutes: minutesToImpact(item.time_to_impact) }))
+    .sort((a, b) => a.impactMinutes - b.impactMinutes || (Number(b.impact) || 0) - (Number(a.impact) || 0))
+  const anomaly = open[0] || null
+  return {
+    anomaly,
+    action: anomaly?.actions?.[0] || null,
+    awaitingDecision: Number(workflow?.awaiting_my_decision) || 0,
+    awaitingValue: Number(workflow?.value_awaiting_approval) || 0,
+    protectedValue: Number(workflow?.verified_value_protected) || 0,
+  }
+}
+
+export function buildInterventionSnapshot(workflow = {}, outcomes = {}, anomalies = []) {
+  const open = anomalies.filter((item) => item.status !== 'resolved')
+  const protectedValue = Number(workflow?.verified_value_protected ?? outcomes?.summary?.value_protected) || 0
+  const openExposure = open.reduce((total, item) => total + (Number(item.impact) || 0), 0)
+  const trackedValue = protectedValue + openExposure
+  return {
+    protectedValue,
+    openExposure,
+    resolved: Number(outcomes?.summary?.anomalies_resolved) || anomalies.filter((item) => item.status === 'resolved').length,
+    active: open.length,
+    protectionRate: trackedValue ? Math.round((protectedValue / trackedValue) * 100) : 0,
+  }
+}
+
+export function buildDataTrust(dashboard = {}, anomalies = []) {
+  const open = anomalies.filter((item) => item.status !== 'resolved')
+  const evidenceAttached = open.filter((item) => Array.isArray(item.evidence) && item.evidence.length > 0).length
+  const confidenceValues = open.map((item) => Number(item.confidence)).filter((value) => Number.isFinite(value))
+  const averageConfidence = confidenceValues.length
+    ? Math.round(confidenceValues.reduce((total, value) => total + value, 0) / confidenceValues.length)
+    : 0
+  const modelF1 = Number(dashboard?.ml_model?.f1)
+  return {
+    records: Number(dashboard?.dataset?.records) || 0,
+    scanCount: Number(dashboard?.scan_count) || 0,
+    lastScan: dashboard?.last_scan || null,
+    evidenceAttached,
+    findingCount: open.length,
+    averageConfidence,
+    modelF1: Number.isFinite(modelF1) ? Math.round(modelF1 * 100) : null,
+  }
+}

@@ -395,6 +395,7 @@ npm run dev
 
 | Resource | URL |
 |---|---|
+| 🚀 **Live NexusAI App** | [https://nexus-ai-cyan-sigma.vercel.app](https://nexus-ai-cyan-sigma.vercel.app/) |
 | 🖥 **NexusAI App** | [http://localhost:5173](http://localhost:5173) |
 | 📖 **API Docs (Swagger)** | [http://localhost:8000/docs](http://localhost:8000/docs) |
 | 📖 **API Docs (ReDoc)** | [http://localhost:8000/redoc](http://localhost:8000/redoc) |

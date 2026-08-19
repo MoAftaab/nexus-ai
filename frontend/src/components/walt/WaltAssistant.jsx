@@ -1,11 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  calculateWaltPopupPosition,
-  clampWaltPosition,
-  isDragGesture,
-  parseStoredWaltPosition,
-  WALT_STORAGE_KEY,
-} from '../../utils/waltPosition'
+import { calculateWaltPopupPosition } from '../../utils/waltPosition'
 import { WaltMascot } from './WaltMascot'
 import { WaltPanel } from './WaltPanel'
 import { useWaltChat } from './useWaltChat'
@@ -26,12 +20,6 @@ function viewportBounds() {
   }
 }
 
-function initialPosition() {
-  const viewport = viewportBounds()
-  const fallback = { x: Math.max(12, viewport.width - 194), y: Math.max(12, viewport.height - 136) }
-  try { return parseStoredWaltPosition(window.localStorage.getItem(WALT_STORAGE_KEY)) || fallback } catch { return fallback }
-}
-
 export function WaltAssistant({
   anomalies = [],
   capabilities,
@@ -49,23 +37,12 @@ export function WaltAssistant({
   const [panelMounted, setPanelMounted] = useState(false)
   const [panelClosing, setPanelClosing] = useState(false)
   const [inputFocused, setInputFocused] = useState(false)
-  const [dragging, setDragging] = useState(false)
-  const [dragState, setDragState] = useState('dragging')
   const [restingState, setRestingState] = useState('greeting')
   const [showGreeting, setShowGreeting] = useState(true)
   const [greetingCopy, setGreetingCopy] = useState(WALT_GREETING_COPY[0])
-  const [position, setPosition] = useState(initialPosition)
-  const [edge, setEdge] = useState(() => position.x < window.innerWidth / 2 ? 'left' : 'right')
-  const shellRef = useRef(null)
-  const triggerRef = useRef(null)
-  const positionRef = useRef(position)
-  const manualPositionRef = useRef(position)
-  const dragRef = useRef(null)
-  const suppressClickRef = useRef(false)
   const sleepTimerRef = useRef(null)
   const transientTimerRef = useRef(null)
   const greetingTimerRef = useRef(null)
-  const personalityTimerRef = useRef(null)
   const greetingIndexRef = useRef(0)
   const panelTimerRef = useRef(null)
   const openRef = useRef(open)
@@ -73,8 +50,6 @@ export function WaltAssistant({
   const contextCards = useMemo(() => buildWaltContextCards(dashboard, anomalies), [dashboard, anomalies])
 
   useEffect(() => { openRef.current = open }, [open])
-  useEffect(() => { positionRef.current = position }, [position])
-
   const showTransient = useCallback((state, duration = 1600) => {
     window.clearTimeout(transientTimerRef.current)
     setRestingState(state)
@@ -98,29 +73,6 @@ export function WaltAssistant({
     }, SLEEP_AFTER_MS)
   }, [])
 
-  const getMascotSize = useCallback(() => {
-    const bounds = triggerRef.current?.getBoundingClientRect()
-    return {
-      width: Math.max(94, Math.round(bounds?.width || 174)),
-      height: Math.max(102, Math.round(bounds?.height || 124)),
-    }
-  }, [])
-
-  const keepPositionVisible = useCallback((desired, persist = true) => {
-    const next = clampWaltPosition(
-      desired,
-      viewportBounds(),
-      getMascotSize(),
-    )
-    positionRef.current = next
-    setPosition(next)
-    setEdge(next.x < window.innerWidth / 2 ? 'left' : 'right')
-    if (persist) {
-      manualPositionRef.current = next
-      try { window.localStorage.setItem(WALT_STORAGE_KEY, JSON.stringify(next)) } catch { /* storage can be disabled */ }
-    }
-  }, [getMascotSize])
-
   const closePanel = useCallback(() => {
     window.clearTimeout(panelTimerRef.current)
     setOpen(false)
@@ -143,57 +95,16 @@ export function WaltAssistant({
   }, [greet, markActive, showTransient])
 
   useEffect(() => {
-    const frame = window.requestAnimationFrame(() => keepPositionVisible(manualPositionRef.current, false))
-    const onResize = () => keepPositionVisible(manualPositionRef.current, false)
-    window.addEventListener('resize', onResize)
-    window.visualViewport?.addEventListener('resize', onResize)
     markActive()
     greet()
     showTransient('greeting', 2200)
     return () => {
-      window.cancelAnimationFrame(frame)
-      window.removeEventListener('resize', onResize)
-      window.visualViewport?.removeEventListener('resize', onResize)
       window.clearTimeout(sleepTimerRef.current)
       window.clearTimeout(transientTimerRef.current)
       window.clearTimeout(greetingTimerRef.current)
-      window.clearTimeout(personalityTimerRef.current)
       window.clearTimeout(panelTimerRef.current)
     }
-  }, [greet, keepPositionVisible, markActive, showTransient])
-
-  useEffect(() => {
-    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
-    if (reducedMotion.matches) return undefined
-    let disposed = false
-    const schedule = (delay = 7200) => {
-      window.clearTimeout(personalityTimerRef.current)
-      personalityTimerRef.current = window.setTimeout(() => {
-        if (disposed) return
-        const busy = openRef.current || chat.loading || dragRef.current
-        if (!busy && !document.hidden) {
-          markActive()
-          greet(true)
-          showTransient('greeting', 2600)
-        }
-        schedule(14500 + Math.round(Math.random() * 5500))
-      }, delay)
-    }
-    const wakeOnReturn = () => {
-      if (!document.hidden && !openRef.current) {
-        markActive()
-        greet(true)
-        showTransient('waking', 1500)
-      }
-    }
-    schedule()
-    document.addEventListener('visibilitychange', wakeOnReturn)
-    return () => {
-      disposed = true
-      window.clearTimeout(personalityTimerRef.current)
-      document.removeEventListener('visibilitychange', wakeOnReturn)
-    }
-  }, [chat.loading, greet, markActive, showTransient])
+  }, [greet, markActive, showTransient])
 
   useEffect(() => {
     if (riskCount > 0) showTransient('warning', 1900)
@@ -215,9 +126,7 @@ export function WaltAssistant({
     return () => window.removeEventListener('keydown', closeOnEscape)
   }, [closePanel, open])
 
-  const state = dragging
-    ? dragState
-    : chat.loading
+  const state = chat.loading
       ? chat.activityState
       : (inputFocused || chat.input.trim())
         ? 'listening'
@@ -225,59 +134,7 @@ export function WaltAssistant({
           ? chat.activityState
           : restingState
 
-  const onPointerDown = (event) => {
-    if (event.button !== 0) return
-    markActive()
-    event.currentTarget.setPointerCapture(event.pointerId)
-    dragRef.current = {
-      pointerId: event.pointerId,
-      start: { x: event.clientX, y: event.clientY },
-      previousX: event.clientX,
-      origin: positionRef.current,
-      dragged: false,
-    }
-  }
-
-  const onPointerMove = (event) => {
-    const active = dragRef.current
-    if (!active || active.pointerId !== event.pointerId) return
-    const current = { x: event.clientX, y: event.clientY }
-    if (!active.dragged && isDragGesture(active.start, current)) {
-      active.dragged = true
-      setDragging(true)
-      setOpen(false)
-      setPanelMounted(false)
-      setPanelClosing(false)
-    }
-    if (!active.dragged) return
-    const horizontalDelta = current.x - active.previousX
-    setDragState(Math.abs(horizontalDelta) < 1 ? 'dragging' : horizontalDelta < 0 ? 'walking-left' : 'walking-right')
-    active.previousX = current.x
-    const desired = {
-      x: active.origin.x + current.x - active.start.x,
-      y: active.origin.y + current.y - active.start.y,
-    }
-    const next = clampWaltPosition(desired, viewportBounds(), getMascotSize())
-    positionRef.current = next
-    setPosition(next)
-    setEdge(next.x < window.innerWidth / 2 ? 'left' : 'right')
-  }
-
-  const finishPointer = (event) => {
-    const active = dragRef.current
-    if (!active || active.pointerId !== event.pointerId) return
-    if (active.dragged) {
-      keepPositionVisible(positionRef.current)
-      suppressClickRef.current = true
-      window.setTimeout(() => { suppressClickRef.current = false }, 0)
-    }
-    setDragging(false)
-    setDragState('dragging')
-    dragRef.current = null
-  }
-
   const toggleOpen = () => {
-    if (suppressClickRef.current) return
     if (open) closePanel()
     else openPanel()
   }
@@ -289,19 +146,17 @@ export function WaltAssistant({
       ? { width: 150, height: 139 }
       : { width: 168, height: 152 }
   const popupPlacement = calculateWaltPopupPosition(
-    { ...position, ...responsiveMascotSize },
+    {
+      x: viewport.width - responsiveMascotSize.width - 18,
+      y: viewport.height - responsiveMascotSize.height - 16,
+      ...responsiveMascotSize,
+    },
     viewport,
     { width: 580, height: 680 },
   )
   return <div
-    ref={shellRef}
-    className={`walt-assistant-shell edge-${edge} popup-${popupPlacement.direction} ${open ? 'is-open' : ''} ${dragging ? 'is-dragging' : ''}`}
+    className={`walt-assistant-shell walt-static edge-right popup-${popupPlacement.direction} ${open ? 'is-open' : ''}`}
     data-state={state}
-    style={{ left: `${position.x}px`, top: `${position.y}px` }}
-    onPointerEnter={() => {
-      markActive()
-      if (!open && restingState === 'sleeping') { greet(); showTransient('waking', 1300) }
-    }}
   >
     {panelMounted && <WaltPanel
       capabilities={capabilities}
@@ -333,17 +188,11 @@ export function WaltAssistant({
       {greetingCopy.lead}{greetingCopy.lead ? ' ' : ''}<b>{greetingCopy.name}</b>{greetingCopy.trail}
     </span>}
     <button
-      ref={triggerRef}
       className="walt-mascot-button"
       onClick={toggleOpen}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={finishPointer}
-      onPointerCancel={finishPointer}
-      onLostPointerCapture={finishPointer}
       aria-expanded={open}
       aria-label={open ? 'Minimize WALT assistant' : 'Open WALT assistant'}
-      title="Click to ask WALT · drag to reposition"
+      title="Click to ask WALT"
     >
       <span className="walt-hover-identity"><b>WALT</b><small>Warehouse Action &amp; Logistics Twin</small></span>
       <WaltMascot state={state} riskCount={riskCount} unread={chat.unread} />
