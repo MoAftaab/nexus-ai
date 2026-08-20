@@ -1,8 +1,14 @@
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { ArrowRight, Bot, Euro, FileSearch, GitFork, Moon, Radar, ShieldCheck, Sparkles, Sun, Waypoints } from 'lucide-react'
 import { api } from '../api'
 import { currency } from '../utils'
 import { VwLogo } from '../components/VwLogo'
+
+// Keep the landing page usable while the optional WebGL layer loads. If an
+// embedded browser cannot load Three.js, the static VW instrument remains.
+const VwTwinScene = lazy(() => import('../components/landing/VwTwinScene')
+  .then((module) => ({ default: module.VwTwinScene }))
+  .catch(() => ({ default: () => null })))
 
 /** Scroll-reveal without framer-motion (its installed build is broken):
  *  adds .revealed when the element enters the viewport; CSS does the rest. */
@@ -11,6 +17,7 @@ function Reveal({ as: Tag = 'div', className = '', delay = 0, children }) {
   useEffect(() => {
     const element = ref.current
     if (!element) return
+    if (typeof IntersectionObserver !== 'function') { element.classList.add('revealed'); return }
     const observer = new IntersectionObserver(([entry]) => {
       if (entry.isIntersecting) { element.classList.add('revealed'); observer.disconnect() }
     }, { rootMargin: '-60px' })
@@ -33,7 +40,8 @@ function CascadeField() {
   const canvasRef = useRef(null)
   useEffect(() => {
     const canvas = canvasRef.current
-    const context = canvas.getContext('2d')
+    const context = canvas?.getContext('2d')
+    if (!context) return undefined
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     let frame; let width; let height
     const pointer = { x: 0, y: 0 }
@@ -198,7 +206,8 @@ function AgentMeshField() {
   const canvasRef = useRef(null)
   useEffect(() => {
     const canvas = canvasRef.current
-    const context = canvas.getContext('2d')
+    const context = canvas?.getContext('2d')
+    if (!context) return undefined
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     let frame; let width; let height
     const resize = () => {
@@ -284,7 +293,8 @@ function HaystackField({ flagged = 1 }) {
   const canvasRef = useRef(null)
   useEffect(() => {
     const canvas = canvasRef.current
-    const context = canvas.getContext('2d')
+    const context = canvas?.getContext('2d')
+    if (!context) return undefined
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     let frame; let width; let height; let dots = []
     let hotIndex = 0
@@ -344,6 +354,7 @@ function CountUp({ value, decimals = 1, suffix = '%' }) {
   useEffect(() => {
     const element = ref.current
     if (!element) return
+    if (typeof IntersectionObserver !== 'function') { setDisplay(value); return }
     let frame = 0; let disposed = false
     const observer = new IntersectionObserver(([entry]) => {
       if (!entry.isIntersecting) return
@@ -410,16 +421,45 @@ export function Landing({ onEnter, theme = 'light', onToggleTheme }) {
 
     <header className="landing-hero">
       <CascadeField />
-      <div className="landing-hero-copy">
-        <Reveal as="span" className="live-chip"><Sparkles size={12} /> Multi-agent supply-chain intelligence</Reveal>
-        <Reveal as="h1" delay={80}>One wrong number can stop an <em>assembly line.</em><br />Warehouse Control Tower AI finds it first.</Reveal>
-        <Reveal as="p" delay={160}>
-          Warehouse Control Tower AI watches a 72,900-record warehouse twin across ERP, WMS and TMS, detects the data drift no human would catch in time,
-          traces the cascade to its euro consequence — and fixes the source, with a person approving every change.
-        </Reveal>
-        <Reveal className="landing-cta" delay={240}>
-          <button className="primary-button landing-primary" onClick={onEnter}>Enter the command center <ArrowRight size={16} /></button>
-          {exposure !== null && <span className="landing-live"><i className="pulse-dot" />{currency(exposure)} at risk on the live twin right now</span>}
+      <div className="landing-hero-grid">
+        <div className="landing-hero-copy">
+          <Reveal as="span" className="live-chip"><Sparkles size={12} /> VW operational twin · multi-agent intelligence</Reveal>
+          <Reveal as="h1" delay={80}>One wrong number can stop an <em>assembly line.</em><br />Warehouse Control Tower AI finds it first.</Reveal>
+          <Reveal as="p" delay={160}>
+            Warehouse Control Tower AI watches a 72,900-record warehouse twin across ERP, WMS and TMS, detects the data drift no human would catch in time,
+            traces the cascade to its euro consequence — and fixes the source, with a person approving every change.
+          </Reveal>
+          <Reveal className="landing-cta" delay={240}>
+            <button className="primary-button landing-primary" onClick={onEnter}>Enter the command center <ArrowRight size={16} /></button>
+            {exposure !== null && <span className="landing-live"><i className="pulse-dot" />{currency(exposure)} at risk on the live twin right now</span>}
+          </Reveal>
+          <Reveal className="landing-hero-meta" delay={300}>
+            <span><i /> ERP / WMS / TMS</span>
+            <span><i /> 5 + 1 AI roles</span>
+            <span><i /> Human-approved actions</span>
+          </Reveal>
+        </div>
+
+        <Reveal className="landing-twin-panel" delay={140}>
+          <Suspense fallback={<div className="landing-twin-loading" aria-hidden="true" />}>
+            <VwTwinScene theme={theme} />
+          </Suspense>
+          <div className="landing-twin-hud-header">
+            <div className="landing-twin-brand-pill">
+              <VwLogo size={22} animated={false} className="landing-twin-hud-logo" />
+              <div>
+                <strong>VW OPERATIONAL TWIN</strong>
+                <span>WOLFSBURG DC · DECISION TELEMETRY</span>
+              </div>
+            </div>
+            <div className="landing-twin-hud-status">
+              <i className="pulse-dot" />
+              <span>LIVE MESH SIGNAL</span>
+            </div>
+          </div>
+          <div className="landing-twin-readout landing-twin-readout-left"><strong>72,900</strong><span>records watched</span></div>
+          <div className="landing-twin-readout landing-twin-readout-right"><strong>38</strong><span>live findings</span></div>
+          <div className="landing-twin-route"><span>detect</span><i /><span>trace</span><i /><span>approve</span></div>
         </Reveal>
       </div>
     </header>
