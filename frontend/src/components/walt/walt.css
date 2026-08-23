@@ -201,18 +201,37 @@
   right: 113px;
   top: 17px;
   width: max-content;
-  padding: 9px 12px;
+  padding: 8px 13px;
   border: 1px solid color-mix(in srgb, var(--walt-cyan) 62%, var(--border-strong));
   border-radius: 14px 14px 3px 14px;
   color: var(--text-1);
   background: var(--dsb-shallow);
-  box-shadow: 0 12px 32px rgba(0, 39, 51, .2), 0 0 16px rgba(140, 190, 230, .12);
+  box-shadow: 0 12px 32px rgba(0, 39, 51, .2), 0 0 16px rgba(140, 190, 230, .14);
   pointer-events: none;
-  animation: walt-hello-in .4s cubic-bezier(.16, 1, .3, 1) both;
-  font: 600 11px/1.2 Manrope, sans-serif;
+  font: 600 11.5px/1.2 Manrope, sans-serif;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  animation: walt-hello-float 3.2s ease-in-out infinite alternate;
 }
-.walt-hello b { color: var(--walt-green); }
+.walt-hello b { color: var(--walt-green); font-weight: 800; }
 .edge-left .walt-hello { right: auto; left: 113px; border-radius: 14px 14px 14px 3px; }
+.walt-hello-wave {
+  display: inline-block;
+  animation: walt-wave-hand 1.6s ease-in-out infinite;
+  transform-origin: 70% 70%;
+}
+
+@keyframes walt-hello-float {
+  0% { transform: translateY(0); }
+  100% { transform: translateY(-4px); }
+}
+
+@keyframes walt-wave-hand {
+  0%, 100% { transform: rotate(0deg); }
+  20%, 60% { transform: rotate(14deg); }
+  40%, 80% { transform: rotate(-10deg); }
+}
 
 .walt-panel {
   position: fixed;
@@ -796,9 +815,9 @@
    decorative motion. The assistant may still open and close as a normal UI. */
 .walt-assistant-shell.walt-static {
   top: auto !important;
-  right: 18px !important;
+  right: auto !important;
   bottom: 16px !important;
-  left: auto !important;
+  left: 18px !important;
   transform: none !important;
   transition: none !important;
 }

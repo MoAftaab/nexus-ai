@@ -30,15 +30,15 @@ export const CODEX_ATLAS_ROWS = {
 }
 
 const stateToAtlas = {
-  idle: 'idle',
+  idle: 'waving',
   greeting: 'waving',
   listening: 'waiting',
   thinking: 'review',
   analysing: 'review',
   'walking-left': 'running-left',
   'walking-right': 'running-right',
-  dragging: 'running',
-  waiting: 'waiting',
+  dragging: 'waving',
+  waiting: 'waving',
   speaking: 'waving',
   success: 'jumping',
   warning: 'waiting',

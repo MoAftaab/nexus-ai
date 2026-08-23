@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { calculateWaltPopupPosition } from '../../utils/waltPosition'
+import {
+  calculateWaltPopupPosition,
+  clampWaltPosition,
+  isDragGesture,
+  parseStoredWaltPosition,
+  WALT_DRAG_THRESHOLD,
+  WALT_STORAGE_KEY,
+} from '../../utils/waltPosition'
 import { WaltMascot } from './WaltMascot'
 import { WaltPanel } from './WaltPanel'
 import { useWaltChat } from './useWaltChat'
@@ -7,11 +14,6 @@ import { buildWaltContextCards, isReviewContext } from './waltModel'
 import './walt.css'
 
 const SLEEP_AFTER_MS = 45000
-const WALT_GREETING_COPY = [
-  { lead: 'Hi! I’m', name: 'WALT', trail: '' },
-  { lead: '', name: 'WALT', trail: ' here — monitoring the flow.' },
-  { lead: 'Still on watch —', name: 'WALT', trail: ' is ready.' },
-]
 
 function viewportBounds() {
   return {
@@ -38,36 +40,53 @@ export function WaltAssistant({
   const [panelClosing, setPanelClosing] = useState(false)
   const [inputFocused, setInputFocused] = useState(false)
   const [restingState, setRestingState] = useState('greeting')
-  const [showGreeting, setShowGreeting] = useState(true)
-  const [greetingCopy, setGreetingCopy] = useState(WALT_GREETING_COPY[0])
   const sleepTimerRef = useRef(null)
   const transientTimerRef = useRef(null)
-  const greetingTimerRef = useRef(null)
-  const greetingIndexRef = useRef(0)
   const panelTimerRef = useRef(null)
   const openRef = useRef(open)
+  const shellRef = useRef(null)
+  const dragRef = useRef(null)
+  const suppressClickRef = useRef(false)
+
+  const getMascotSize = useCallback(() => {
+    const width = window.innerWidth
+    if (width <= 520) return { width: 126, height: 116 }
+    if (width <= 760) return { width: 150, height: 139 }
+    return { width: 168, height: 152 }
+  }, [])
+
+  const [position, setPosition] = useState(() => {
+    const stored = parseStoredWaltPosition(localStorage.getItem(WALT_STORAGE_KEY))
+    const viewport = viewportBounds()
+    const size = viewport.width <= 520 ? { width: 126, height: 116 } : viewport.width <= 760 ? { width: 150, height: 139 } : { width: 168, height: 152 }
+    const defaultPos = {
+      x: 24,
+      y: Math.max(12, viewport.height - size.height - 18),
+    }
+    if (stored) {
+      return clampWaltPosition(stored, viewport, size)
+    }
+    return defaultPos
+  })
+  const positionRef = useRef(position)
+  const [dragging, setDragging] = useState(false)
+  const [edge, setEdge] = useState(() => (position.x < (window.innerWidth / 2) ? 'left' : 'right'))
+
   const chat = useWaltChat(onChatStream, onWaltResolve, onWaltConfirm, onWaltFeedback, open, requestId)
   const contextCards = useMemo(() => buildWaltContextCards(dashboard, anomalies), [dashboard, anomalies])
 
   useEffect(() => { openRef.current = open }, [open])
+  useEffect(() => { positionRef.current = position }, [position])
+
   const showTransient = useCallback((state, duration = 1600) => {
     window.clearTimeout(transientTimerRef.current)
     setRestingState(state)
-    transientTimerRef.current = window.setTimeout(() => setRestingState('waiting'), duration)
-  }, [])
-
-  const greet = useCallback((periodic = false) => {
-    window.clearTimeout(greetingTimerRef.current)
-    if (periodic) greetingIndexRef.current = (greetingIndexRef.current + 1) % WALT_GREETING_COPY.length
-    else greetingIndexRef.current = 0
-    setGreetingCopy(WALT_GREETING_COPY[greetingIndexRef.current])
-    setShowGreeting(true)
-    greetingTimerRef.current = window.setTimeout(() => setShowGreeting(false), periodic ? 3400 : 2800)
+    transientTimerRef.current = window.setTimeout(() => setRestingState('greeting'), duration)
   }, [])
 
   const markActive = useCallback(() => {
     window.clearTimeout(sleepTimerRef.current)
-    setRestingState((state) => state === 'sleeping' ? 'waking' : state)
+    setRestingState((state) => state === 'sleeping' ? 'greeting' : state)
     sleepTimerRef.current = window.setTimeout(() => {
       if (!openRef.current) setRestingState('sleeping')
     }, SLEEP_AFTER_MS)
@@ -89,22 +108,19 @@ export function WaltAssistant({
     setPanelClosing(false)
     setPanelMounted(true)
     setOpen(true)
-    greet()
     showTransient('greeting', 1600)
     markActive()
-  }, [greet, markActive, showTransient])
+  }, [markActive, showTransient])
 
   useEffect(() => {
     markActive()
-    greet()
     showTransient('greeting', 2200)
     return () => {
       window.clearTimeout(sleepTimerRef.current)
       window.clearTimeout(transientTimerRef.current)
-      window.clearTimeout(greetingTimerRef.current)
       window.clearTimeout(panelTimerRef.current)
     }
-  }, [greet, markActive, showTransient])
+  }, [markActive, showTransient])
 
   useEffect(() => {
     if (riskCount > 0) showTransient('warning', 1900)
@@ -126,7 +142,92 @@ export function WaltAssistant({
     return () => window.removeEventListener('keydown', closeOnEscape)
   }, [closePanel, open])
 
-  const state = chat.loading
+  // Keep WALT within viewport on window resize
+  useEffect(() => {
+    const onResize = () => {
+      const clamped = clampWaltPosition(positionRef.current, viewportBounds(), getMascotSize())
+      positionRef.current = clamped
+      setPosition(clamped)
+      setEdge(clamped.x < (window.innerWidth / 2) ? 'left' : 'right')
+    }
+    window.addEventListener('resize', onResize)
+    window.visualViewport?.addEventListener('resize', onResize)
+    return () => {
+      window.removeEventListener('resize', onResize)
+      window.visualViewport?.removeEventListener('resize', onResize)
+    }
+  }, [getMascotSize])
+
+  const onPointerDown = (event) => {
+    if (event.button !== 0) return
+    markActive()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: positionRef.current.x,
+      originY: positionRef.current.y,
+      dragged: false,
+    }
+  }
+
+  const onPointerMove = (event) => {
+    const active = dragRef.current
+    if (!active || active.pointerId !== event.pointerId) return
+    const current = { x: event.clientX, y: event.clientY }
+    const start = { x: active.startX, y: active.startY }
+
+    if (!active.dragged) {
+      if (!isDragGesture(start, current, WALT_DRAG_THRESHOLD)) return
+      active.dragged = true
+      setDragging(true)
+    }
+
+    const deltaX = current.x - start.x
+    const deltaY = current.y - start.y
+    const nextPos = clampWaltPosition(
+      { x: active.originX + deltaX, y: active.originY + deltaY },
+      viewportBounds(),
+      getMascotSize(),
+    )
+    positionRef.current = nextPos
+    setPosition(nextPos)
+    setEdge(nextPos.x < (window.innerWidth / 2) ? 'left' : 'right')
+  }
+
+  const onPointerUp = (event) => {
+    const active = dragRef.current
+    if (!active || active.pointerId !== event.pointerId) return
+    try {
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId)
+      }
+    } catch {
+      // ignore pointer capture errors
+    }
+    dragRef.current = null
+    setDragging(false)
+
+    if (active.dragged) {
+      const finalPos = clampWaltPosition(positionRef.current, viewportBounds(), getMascotSize())
+      positionRef.current = finalPos
+      setPosition(finalPos)
+      try {
+        localStorage.setItem(WALT_STORAGE_KEY, JSON.stringify(finalPos))
+      } catch {
+        // ignore storage errors
+      }
+      suppressClickRef.current = true
+      window.setTimeout(() => {
+        suppressClickRef.current = false
+      }, 60)
+    }
+  }
+
+  const state = dragging
+    ? 'dragging'
+    : chat.loading
       ? chat.activityState
       : (inputFocused || chat.input.trim())
         ? 'listening'
@@ -140,23 +241,22 @@ export function WaltAssistant({
   }
 
   const viewport = viewportBounds()
-  const responsiveMascotSize = viewport.width <= 520
-    ? { width: 126, height: 116 }
-    : viewport.width <= 760
-      ? { width: 150, height: 139 }
-      : { width: 168, height: 152 }
+  const responsiveMascotSize = getMascotSize()
   const popupPlacement = calculateWaltPopupPosition(
     {
-      x: viewport.width - responsiveMascotSize.width - 18,
-      y: viewport.height - responsiveMascotSize.height - 16,
+      x: position.x,
+      y: position.y,
       ...responsiveMascotSize,
     },
     viewport,
     { width: 580, height: 680 },
   )
+
   return <div
-    className={`walt-assistant-shell walt-static edge-right popup-${popupPlacement.direction} ${open ? 'is-open' : ''}`}
+    ref={shellRef}
+    className={`walt-assistant-shell edge-${edge} popup-${popupPlacement.direction} ${open ? 'is-open' : ''} ${dragging ? 'is-dragging' : ''}`}
     data-state={state}
+    style={{ left: `${position.x}px`, top: `${position.y}px` }}
   >
     {panelMounted && <WaltPanel
       capabilities={capabilities}
@@ -178,21 +278,29 @@ export function WaltAssistant({
       placement={popupPlacement}
       requestActions={requestActions}
       onRetry={chat.retry}
-        onSend={chat.send}
+      onSend={chat.send}
       onCancel={chat.cancel}
       onFeedback={chat.rateMessage}
       riskCount={riskCount}
       state={state}
     />}
-    {!open && showGreeting && <span className="walt-hello" role="status">
-      {greetingCopy.lead}{greetingCopy.lead ? ' ' : ''}<b>{greetingCopy.name}</b>{greetingCopy.trail}
+    {!open && <span className="walt-hello" role="status">
+      <span className="walt-hello-wave">👋</span>
+      <span>Hi, I am <b>WALT</b>!</span>
     </span>}
     <button
       className="walt-mascot-button"
-      onClick={toggleOpen}
+      onClick={() => {
+        if (suppressClickRef.current) return
+        toggleOpen()
+      }}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
       aria-expanded={open}
       aria-label={open ? 'Minimize WALT assistant' : 'Open WALT assistant'}
-      title="Click to ask WALT"
+      title="Drag WALT anywhere or click to ask"
     >
       <span className="walt-hover-identity"><b>WALT</b><small>Warehouse Action &amp; Logistics Twin</small></span>
       <WaltMascot state={state} riskCount={riskCount} unread={chat.unread} />
