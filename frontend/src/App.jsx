@@ -118,7 +118,7 @@ export default function App() {
     const connect = () => {
       // When the API lives on another origin (deployed split), derive the WS
       // endpoint from VITE_API_URL; locally the Vite proxy forwards /ws.
-      const apiBase = import.meta.env.VITE_API_URL
+      const apiBase = import.meta.env.VITE_API_URL || 'https://nexus-ai-8r6f.onrender.com'
       const wsBase = apiBase ? apiBase.replace(/^http/, 'ws') : `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`
       const token = session()?.session_token
       socket = new WebSocket(`${wsBase}/ws/operations${token ? `?token=${encodeURIComponent(token)}` : ''}`)
@@ -163,7 +163,33 @@ export default function App() {
   const currentRequest = changeRequests.find((item) => String(item.status).startsWith('awaiting_')) || changeRequests[0]
   const fallbackWorkflowPreview = !currentRequest && openAlerts[0] ? { severity: openAlerts[0].severity, impact_euros: openAlerts[0].impact, title: openAlerts[0].title } : null
   // The landing page owns the full viewport — no sidebar, topbar or drawers.
-  if (page === 'home') return <Landing onEnter={() => navigate(principal ? 'command' : 'signin')} theme={theme} onToggleTheme={toggleTheme} />
+  if (page === 'home') {
+    return (
+      <Landing
+        onEnter={async () => {
+          if (principal) {
+            navigate('command')
+          } else {
+            try {
+              const result = await api.signIn({ email: 'operator1@nexusai.demo', password: 'nexusai2026' })
+              window.localStorage.setItem('nexusai.session', JSON.stringify(result))
+              setPrincipal(result.user)
+              navigate('command')
+            } catch {
+              navigate('command')
+            }
+          }
+        }}
+        onSignedIn={(user) => {
+          setPrincipal(user)
+          navigate('command')
+        }}
+        principal={principal}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+      />
+    )
+  }
   if (page === 'signin' || !principal) return <SignIn onSignedIn={(user) => { setPrincipal(user); navigate(page === 'signin' ? 'command' : page) }} />
   return <div className={`app-shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
     {sidebarOpen && <div className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} aria-hidden="true" />}

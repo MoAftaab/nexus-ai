@@ -1,4 +1,4 @@
-const API_BASE = import.meta.env.VITE_API_URL || ''
+const API_BASE = import.meta.env.VITE_API_URL || 'https://nexus-ai-8r6f.onrender.com'
 const SESSION_KEY = 'nexusai.session'
 
 export function session() {

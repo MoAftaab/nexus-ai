@@ -6,8 +6,17 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api': 'http://localhost:8000',
-      '/ws': { target: 'ws://localhost:8000', ws: true },
+      '/api': {
+        target: 'https://nexus-ai-8r6f.onrender.com',
+        changeOrigin: true,
+        secure: true,
+      },
+      '/ws': {
+        target: 'wss://nexus-ai-8r6f.onrender.com',
+        ws: true,
+        changeOrigin: true,
+        secure: true,
+      },
     },
   },
   build: {
