@@ -253,7 +253,8 @@ export function Landing({ onEnter, onSignedIn, onSignOut, principal, theme = 'li
             <span>{theme === 'dark' ? 'Light' : 'Dark'}</span>
           </button>
           <button className="soft-button" onClick={onEnter}>
-            {principal ? 'Enter dashboard' : 'Sign in'} <ArrowRight size={14} />
+            <span>{principal ? 'Enter dashboard' : 'Sign in'}</span>
+            <ArrowRight size={14} />
           </button>
         </div>
       </nav>
