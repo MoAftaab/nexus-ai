@@ -1,20 +1,235 @@
-import { useEffect, useState } from 'react'
-import { CheckCircle2, ChevronRight, ClipboardCheck, DatabaseZap, Search, Sparkles } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { CheckCircle2, ChevronRight, DatabaseZap, Search, Sparkles } from 'lucide-react'
 
 export function Reconciliation({ data, onSelectAnomaly }) {
   const [selected, setSelected] = useState(data?.rows?.[0]?.id)
-  useEffect(() => { if (!selected && data?.rows?.[0]?.id) setSelected(data.rows[0].id) }, [data, selected])
-  const active = data?.rows?.find((row) => row.id === selected)
-  const controlId = data?.summary?.anomaly_id
-  const scale = active ? Math.max(active.wms, active.erp, active.tms, active.physical) : 1
-  const bar = (value) => `${Math.min(100, value / scale * 100)}%`
+  const [filter, setFilter] = useState('')
 
-  return <div className="page reconciliation-page">
-    <section className="page-lead"><div><span className="eyebrow"><DatabaseZap size={14} /> Inventory truth layer</span><h2>Reconcile facts, not just balances.</h2><p>Trace every WMS, ERP, TMS and physical-count divergence back to the transaction that made the systems disagree.</p></div><div className="reconcile-brief"><ClipboardCheck size={20} /><div><strong>{data?.summary?.review_items === 1 ? '1 record needs review' : `${data?.summary?.review_items || 0} records need review`}</strong><span>{data?.summary?.total_variance || 0} units total variance</span></div></div></section>
-    <section className="reconcile-layout"><article className="reconcile-table card-surface"><div className="reconcile-toolbar"><div><h3>Balance comparison</h3><span>Last physical count {data?.summary?.last_count}</span></div><label className="table-search"><Search size={16} /><input placeholder="Filter inventory" /></label></div><div className="inventory-head"><span>Part & location</span><span>WMS</span><span>ERP</span><span>TMS</span><span>Physical</span><span>Variance</span><span /></div>{data?.rows?.map((row) => <button className={`inventory-row ${selected === row.id ? 'selected' : ''}`} key={row.id} onClick={() => setSelected(row.id)}><span><strong>{row.sku}</strong><small>{row.description} · {row.bin}</small></span><b>{row.wms}</b><b>{row.erp}</b><b>{row.tms}</b><b>{row.physical}</b><em className={row.risk}>{row.variance === 0 ? 'Balanced' : `${row.variance > 0 ? '+' : ''}${row.variance}`}</em><ChevronRight size={16} /></button>)}</article>
-      <aside className="reconcile-detail card-surface">{active ? <><span className="eyebrow"><Sparkles size={14} /> Reconciliation agent</span><h3>{active.sku}: source of truth</h3><div className="truth-value"><strong>{active.physical}</strong><span>verified units</span></div><p className="root-cause-text">{active.root}</p><div className="balance-bars"><div><span>WMS</span><i><b style={{ width: bar(active.wms) }} /></i><strong>{active.wms}</strong></div><div><span>ERP</span><i><b style={{ width: bar(active.erp) }} /></i><strong>{active.erp}</strong></div><div><span>TMS</span><i><b style={{ width: bar(active.tms) }} /></i><strong>{active.tms}</strong></div><div><span>Count</span><i><b style={{ width: bar(active.physical) }} /></i><strong>{active.physical}</strong></div></div>{controlId && <button className="primary-button full" onClick={() => onSelectAnomaly?.({ id: controlId })}>Open reconciliation control</button>}</> : null}</aside>
-    </section>
-    {active?.sap_anchor && <section className="sap-workbench card-surface"><div className="section-title"><div><span className="eyebrow"><DatabaseZap size={14} /> SAP ERP / MARD</span><h3>Storage-location truth</h3></div><span className="sap-plant">Plant {active.plant || '1400'}</span></div><div className="sap-field-grid"><div><span>Storage location</span><strong>{active.storagelocation}</strong></div><div><span>Fiscal period</span><strong className={active.fiscalyearofcurrentperiod < 2026 ? 'sap-alert' : ''}>FY{active.fiscalyearofcurrentperiod} / {active.currentperiod}</strong></div><div><span>Deletion flag</span><strong className={active.deletionflag === 'X' ? 'sap-alert' : 'sap-ok'}>{active.deletionflag || 'Clear'}</strong></div><div><span>Blocked stock</span><strong className={active.blockedstock > 0 ? 'sap-warn' : 'sap-ok'}>{active.blockedstock || 0} ST</strong></div><div><span>Last posted count</span><strong className={active.dateoflastpostedcount === '00000000' ? 'sap-alert' : ''}>{active.dateoflastpostedcount || 'Not supplied'}</strong></div></div></section>}
-    <section className="audit-timeline card-surface"><div className="section-title"><div><span className="eyebrow"><CheckCircle2 size={14} /> Transaction archaeology</span><h3>The divergence timeline</h3></div></div><div className="timeline-row">{data?.timeline?.map((event) => <div className={`timeline-event ${event.state}`} key={event.time}><i /><span>{event.time}</span><strong>{event.event}</strong><small>{event.system}</small></div>)}</div></section>
-  </div>
+  useEffect(() => {
+    if (!selected && data?.rows?.[0]?.id) setSelected(data.rows[0].id)
+  }, [data, selected])
+
+  const active = data?.rows?.find((row) => row.id === selected) || data?.rows?.[0]
+  const controlId = data?.summary?.anomaly_id
+  const scale = active ? Math.max(active.wms, active.erp, active.tms, active.physical, 1) : 1
+  const bar = (value) => `${Math.min(100, (value / scale) * 100)}%`
+
+  // Every source measured against the physical count — the only balance that is
+  // ground truth. The deltas are what an operator actually reads off this panel.
+  const sources = useMemo(() => (active ? [
+    { label: 'WMS', value: active.wms, delta: active.wms - active.physical },
+    { label: 'ERP', value: active.erp, delta: active.erp - active.physical },
+    { label: 'TMS', value: active.tms, delta: active.tms - active.physical },
+    { label: 'Count', value: active.physical, delta: 0 },
+  ] : []), [active])
+  const agreeing = sources.filter((source) => source.delta === 0).length
+
+  const filteredRows = (data?.rows || []).filter(
+    (r) =>
+      !filter ||
+      r.sku?.toLowerCase().includes(filter.toLowerCase()) ||
+      r.description?.toLowerCase().includes(filter.toLowerCase()) ||
+      r.bin?.toLowerCase().includes(filter.toLowerCase())
+  )
+
+  return (
+    <div className="page reconciliation-page">
+      <div className="recon-viewport-grid">
+        {/* Left Column (50%): Balance table on top, Divergence Timeline below */}
+        <div className="recon-left-col">
+          {/* Top: Balance comparison table */}
+          <article className="reconcile-table card-surface">
+            <div className="reconcile-toolbar">
+              <div>
+                <h3>Balance comparison</h3>
+                <span>Last physical count: {data?.summary?.last_count || 'Today'}</span>
+              </div>
+              <div className="reconcile-toolbar-right">
+                <span className="recon-variance-chip">
+                  {data?.summary?.review_items || 0} to review · {data?.summary?.total_variance || 0} units adrift
+                </span>
+                <label className="table-search">
+                  <Search size={14} />
+                  <input
+                    placeholder="Filter inventory..."
+                    value={filter}
+                    onChange={(e) => setFilter(e.target.value)}
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div className="inventory-head">
+              <span>Part & location</span>
+              <span>WMS</span>
+              <span>ERP</span>
+              <span>TMS</span>
+              <span>Physical</span>
+              <span>Variance</span>
+              <span />
+            </div>
+
+            {/* Fixed at 8 rows by the API, so they share the height instead of scrolling. */}
+            <div className="inventory-rows-scroll">
+              {filteredRows.map((row) => (
+                <button
+                  className={`inventory-row ${selected === row.id ? 'selected' : ''}`}
+                  key={row.id}
+                  onClick={() => setSelected(row.id)}
+                >
+                  <span>
+                    <strong>{row.sku}</strong>
+                    <small>{row.description} · {row.bin}</small>
+                  </span>
+                  <b>{row.wms}</b>
+                  <b>{row.erp}</b>
+                  <b>{row.tms}</b>
+                  <b>{row.physical}</b>
+                  <em className={row.risk}>
+                    {row.variance === 0 ? 'Balanced' : `${row.variance > 0 ? '+' : ''}${row.variance}`}
+                  </em>
+                  <ChevronRight size={14} />
+                </button>
+              ))}
+              {filteredRows.length === 0 && (
+                <p className="recon-empty">No part matches “{filter}”.</p>
+              )}
+            </div>
+          </article>
+
+          {/* Full-width Divergence Timeline directly under Balance comparison table */}
+          <section className="audit-timeline card-surface">
+            <div className="section-title">
+              <div>
+                <span className="eyebrow"><CheckCircle2 size={12} /> Transaction archaeology</span>
+                <h3>Divergence timeline</h3>
+              </div>
+            </div>
+            <div className="timeline-row">
+              {data?.timeline?.map((event) => (
+                <div className={`timeline-event ${event.state}`} key={event.time}>
+                  <i />
+                  <span>{event.time}</span>
+                  <strong>{event.event}</strong>
+                  <small>{event.system}</small>
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
+
+        {/* Right Column (50%): Reconciliation Agent on top, SAP ERP Storage Truth below */}
+        <div className="recon-right-col">
+          {/* Top: Reconciliation Agent Workbench */}
+          <aside className="reconcile-detail card-surface">
+            {active ? (
+              <>
+                <div className="recon-detail-head">
+                  <div className="recon-detail-title-row">
+                    <div>
+                      <span className="eyebrow"><Sparkles size={13} /> Reconciliation agent</span>
+                      <h3>{active.sku}: source of truth</h3>
+                    </div>
+                    <small className="recon-sku-bin">{active.description} · {active.bin}</small>
+                  </div>
+                </div>
+
+                <div className="truth-value">
+                  <strong>{active.physical}</strong>
+                  <span>verified units</span>
+                  <em className={active.risk}>
+                    {active.variance === 0 ? 'In balance' : `${active.variance > 0 ? '+' : ''}${active.variance} drift`}
+                  </em>
+                </div>
+
+                <p className="root-cause-text">{active.root}</p>
+
+                <div className="balance-bars">
+                  <div className="balance-bars-head">
+                    <span>Source</span>
+                    <span>Balance</span>
+                    <span>Δ count</span>
+                  </div>
+                  {sources.map((source) => (
+                    <div className={source.delta === 0 ? 'agrees' : 'drifts'} key={source.label}>
+                      <span>{source.label}</span>
+                      <i><b style={{ width: bar(source.value) }} /></i>
+                      <strong>{source.value}</strong>
+                      <em>{source.delta === 0 ? '—' : `${source.delta > 0 ? '+' : ''}${source.delta}`}</em>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="recon-action-row">
+                  <div className="recon-verdict">
+                    <span>Source agreement</span>
+                    <strong className={agreeing === sources.length ? 'sap-ok' : 'sap-alert'}>
+                      {agreeing} of {sources.length} match the count
+                    </strong>
+                  </div>
+                  {controlId && (
+                    <button
+                      className="primary-button recon-action-btn"
+                      onClick={() => onSelectAnomaly?.({ id: controlId })}
+                    >
+                      Open reconciliation control
+                    </button>
+                  )}
+                </div>
+              </>
+            ) : null}
+          </aside>
+
+          {/* Bottom: SAP ERP Storage-Location Truth & Warehouse Controls */}
+          <section className="sap-workbench card-surface">
+            <div className="section-title">
+              <div>
+                <span className="eyebrow"><DatabaseZap size={12} /> SAP ERP / MARD</span>
+                <h3>Storage-location truth & controls</h3>
+              </div>
+              <span className="sap-plant">Plant {active?.plant || '1400'} · {active?.warehouse || 'WH-01'}</span>
+            </div>
+
+            <div className="sap-matrix">
+              {/* Row 1: Primary Metrics (3 items) */}
+              <div className="sap-matrix-row sap-row-top">
+                <div className="sap-cell">
+                  <span>Storage location</span>
+                  <strong>{active?.storagelocation || active?.bin || 'F6M1'}</strong>
+                </div>
+                <div className="sap-cell">
+                  <span>Fiscal period</span>
+                  <strong className={active?.fiscalyearofcurrentperiod && active.fiscalyearofcurrentperiod < 2026 ? 'sap-alert' : ''}>
+                    FY{active?.fiscalyearofcurrentperiod || '2026'} / {active?.currentperiod || '08'}
+                  </strong>
+                </div>
+                <div className="sap-cell">
+                  <span>Blocked stock</span>
+                  <strong className={active?.blockedstock > 0 ? 'sap-warn' : 'sap-ok'}>
+                    {active?.blockedstock || 0} ST
+                  </strong>
+                </div>
+              </div>
+
+              {/* Row 2: Status & Synchronization Verification (2 items) */}
+              <div className="sap-matrix-row sap-row-bottom">
+                <div className="sap-cell">
+                  <span>Stock integrity</span>
+                  <strong className={active?.deletionflag === 'X' ? 'sap-alert' : 'sap-ok'}>
+                    {active?.deletionflag === 'X' ? 'Flagged for Deletion' : 'Normal / Unblocked'}
+                  </strong>
+                </div>
+                <div className="sap-cell">
+                  <span>Physical count sync</span>
+                  <strong className={active?.dateoflastpostedcount === '00000000' ? 'sap-alert' : 'sap-ok'}>
+                    {active?.dateoflastpostedcount && active.dateoflastpostedcount !== '00000000' ? `Posted ${active.dateoflastpostedcount}` : 'Synchronized'}
+                  </strong>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  )
 }

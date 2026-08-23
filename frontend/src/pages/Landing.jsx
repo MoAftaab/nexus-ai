@@ -1,5 +1,5 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react'
-import { ArrowRight, Bot, Euro, FileSearch, GitFork, Moon, Radar, ShieldCheck, Sparkles, Sun, Waypoints } from 'lucide-react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { ArrowRight, Moon, ShieldCheck, Sparkles, Sun } from 'lucide-react'
 import { api } from '../api'
 import { currency } from '../utils'
 import { VwLogo } from '../components/VwLogo'
@@ -9,6 +9,24 @@ import { VwLogo } from '../components/VwLogo'
 const VwTwinScene = lazy(() => import('../components/landing/VwTwinScene')
   .then((module) => ({ default: module.VwTwinScene }))
   .catch(() => ({ default: () => null })))
+
+const ACCOUNTS = [
+  ['operator1@nexusai.demo', 'Operations operator', 'Wolfsburg'],
+  ['operator2@nexusai.demo', 'Operations operator', 'Bratislava'],
+  ['operator3@nexusai.demo', 'Operations operator', 'Pune'],
+  ['lead1@nexusai.demo', 'Operations lead', 'Wolfsburg'],
+  ['lead2@nexusai.demo', 'Operations lead', 'Bratislava'],
+  ['lead3@nexusai.demo', 'Operations lead', 'Pune'],
+  ['manager1@nexusai.demo', 'Operations manager', 'Wolfsburg'],
+  ['manager2@nexusai.demo', 'Operations manager', 'Bratislava'],
+  ['manager3@nexusai.demo', 'Operations manager', 'Pune'],
+  ['quality1@nexusai.demo', 'Quality & compliance', 'Wolfsburg'],
+  ['quality2@nexusai.demo', 'Quality & compliance', 'Bratislava'],
+  ['quality3@nexusai.demo', 'Quality & compliance', 'Pune'],
+  ['director@nexusai.demo', 'Supply chain director', 'All sites'],
+  ['auditor@nexusai.demo', 'Auditor', 'All sites'],
+  ['admin@nexusai.demo', 'System administrator', 'All sites'],
+]
 
 /** Scroll-reveal without framer-motion (its installed build is broken):
  *  adds .revealed when the element enters the viewport; CSS does the rest. */
@@ -187,363 +205,160 @@ function CascadeField() {
   return <canvas ref={canvasRef} className="landing-canvas" aria-hidden="true" />
 }
 
-/* ------------------------------------------------------------------------ */
-
-/* ------------------------------------------------------------------------ */
-/* 3D agent mesh — five specialists orbit the Nexus orchestrator, streaming */
-/* handoff pulses inward; the center emits a decision wave when they land.  */
-/* ------------------------------------------------------------------------ */
-
-const SPECIALIST_ORBS = [
-  { name: 'Issue Monitor', role: 'Finds anomalies', temp: 0.2, color: '#008C82' },
-  { name: 'System Linker', role: 'Connects records', temp: 0.4, color: '#8CBEE6' },
-  { name: 'Impact Tracer', role: 'Follows risk', temp: 0.4, color: '#C882BE' },
-  { name: 'Value Analyst', role: 'Measures impact', temp: 0.2, color: '#FAAA3C' },
-  { name: 'Action Planner', role: 'Designs controls', temp: 0.35, color: '#64A844' },
-]
-
-function AgentMeshField() {
-  const canvasRef = useRef(null)
-  useEffect(() => {
-    const canvas = canvasRef.current
-    const context = canvas?.getContext('2d')
-    if (!context) return undefined
-    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    let frame; let width; let height
-    const resize = () => {
-      const ratio = Math.min(window.devicePixelRatio || 1, 2)
-      width = canvas.clientWidth; height = canvas.clientHeight
-      canvas.width = width * ratio; canvas.height = height * ratio
-      context.setTransform(ratio, 0, 0, ratio, 0, 0)
-    }
-    resize()
-    window.addEventListener('resize', resize)
-    let tick = 0
-    const FOCAL = 520; const RING = 205; const TILT = 0.42
-    const draw = () => {
-      tick += reduced ? 0 : 1
-      const angle = tick * 0.0035
-      context.clearRect(0, 0, width, height)
-      const cx = width / 2; const cy = height / 2 + 4
-      const orbs = SPECIALIST_ORBS.map((orb, index) => {
-        const theta = angle + (index / SPECIALIST_ORBS.length) * Math.PI * 2
-        const x = Math.cos(theta) * RING
-        const z = Math.sin(theta) * RING
-        const scale = FOCAL / (FOCAL + z + 240)
-        return { ...orb, sx: cx + x * scale, sy: cy + z * TILT * scale * 0.9 - 8, scale, z }
-      }).sort((a, b) => b.z - a.z)
-      // Decision wave rippling out of the orchestrator.
-      const wave = (tick % 260) / 260
-      context.strokeStyle = `rgba(238, 213, 147, ${(1 - wave) * 0.3})`
-      context.lineWidth = 1.4
-      context.beginPath(); context.ellipse(cx, cy - 8, wave * 190, wave * 190 * TILT, 0, 0, Math.PI * 2); context.stroke()
-      for (const orb of orbs) {
-        // Handoff lane and traveling pulse (staggered per specialist).
-        context.strokeStyle = `rgba(238, 213, 147, ${0.07 + orb.scale * 0.08})`
-        context.lineWidth = orb.scale
-        context.beginPath(); context.moveTo(orb.sx, orb.sy); context.lineTo(cx, cy - 8); context.stroke()
-        const t = ((tick * 0.006) + SPECIALIST_ORBS.findIndex((s) => s.name === orb.name) * 0.2) % 1
-        const px = orb.sx + (cx - orb.sx) * t; const py = orb.sy + (cy - 8 - orb.sy) * t
-        const glow = context.createRadialGradient(px, py, 0, px, py, 6)
-        glow.addColorStop(0, 'rgba(255, 240, 200, .95)'); glow.addColorStop(1, 'rgba(255, 240, 200, 0)')
-        context.fillStyle = glow
-        context.beginPath(); context.arc(px, py, 6, 0, Math.PI * 2); context.fill()
-        // Specialist orb + label.
-        const radius = 8.5 * orb.scale
-        const orbGlow = context.createRadialGradient(orb.sx, orb.sy, 0, orb.sx, orb.sy, radius * 2.6)
-        orbGlow.addColorStop(0, orb.color); orbGlow.addColorStop(1, 'rgba(0,0,0,0)')
-        context.globalAlpha = 0.35 * orb.scale; context.fillStyle = orbGlow
-        context.beginPath(); context.arc(orb.sx, orb.sy, radius * 2.6, 0, Math.PI * 2); context.fill()
-        context.globalAlpha = 0.45 + orb.scale * 0.55; context.fillStyle = orb.color
-        context.beginPath(); context.arc(orb.sx, orb.sy, radius, 0, Math.PI * 2); context.fill()
-        context.globalAlpha = 0.5 + orb.scale * 0.5
-        context.font = `700 ${Math.round(10 * orb.scale)}px "DM Mono", monospace`
-        context.textAlign = 'center'; context.fillStyle = '#F5FBFC'
-        context.fillText(orb.name, orb.sx, orb.sy + radius + 14 * orb.scale)
-        context.font = `500 ${Math.round(8 * orb.scale)}px "DM Mono", monospace`
-        context.fillStyle = 'rgba(140,190,230,0.6)'
-        context.fillText(orb.role, orb.sx, orb.sy + radius + 25 * orb.scale)
-        context.globalAlpha = 1
-      }
-      // Orchestrator core.
-      const pulse = 15 + Math.sin(tick * 0.045) * 2.2
-      const core = context.createRadialGradient(cx, cy - 8, 0, cx, cy - 8, pulse * 2.6)
-      core.addColorStop(0, 'rgba(255, 238, 190, .95)'); core.addColorStop(0.45, 'rgba(238, 213, 147, .5)'); core.addColorStop(1, 'rgba(238, 213, 147, 0)')
-      context.fillStyle = core
-      context.beginPath(); context.arc(cx, cy - 8, pulse * 2.6, 0, Math.PI * 2); context.fill()
-      context.fillStyle = '#FAD2AA'
-      context.beginPath(); context.arc(cx, cy - 8, pulse * 0.55, 0, Math.PI * 2); context.fill()
-      context.font = '700 11px "DM Mono", monospace'; context.textAlign = 'center'
-      context.fillStyle = '#FAD2AA'; context.fillText('CONTROL TOWER', cx, cy + 34)
-      context.font = '500 8px "DM Mono", monospace'; context.fillStyle = 'rgba(140,190,230,0.6)'
-      context.fillText('orchestrator · synthesis', cx, cy + 45)
-      frame = window.requestAnimationFrame(draw)
-    }
-    draw()
-    return () => { window.cancelAnimationFrame(frame); window.removeEventListener('resize', resize) }
-  }, [])
-  return <canvas ref={canvasRef} className="mesh-canvas" aria-hidden="true" />
-}
-
-/* ------------------------------------------------------------------------ */
-/* Haystack — ~15,000 scored positions as a shimmering field; one glows.    */
-/* ------------------------------------------------------------------------ */
-
-function HaystackField({ flagged = 1 }) {
-  const canvasRef = useRef(null)
-  useEffect(() => {
-    const canvas = canvasRef.current
-    const context = canvas?.getContext('2d')
-    if (!context) return undefined
-    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    let frame; let width; let height; let dots = []
-    let hotIndex = 0
-    const resize = () => {
-      const ratio = Math.min(window.devicePixelRatio || 1, 2)
-      width = canvas.clientWidth; height = canvas.clientHeight
-      canvas.width = width * ratio; canvas.height = height * ratio
-      context.setTransform(ratio, 0, 0, ratio, 0, 0)
-      const cols = Math.floor(width / 13); const rows = Math.floor(height / 13)
-      dots = []
-      for (let row = 0; row < rows; row += 1) {
-        for (let col = 0; col < cols; col += 1) {
-          dots.push({ x: 8 + col * 13 + (Math.sin(row * 7 + col) * 2), y: 10 + row * 13 + (Math.cos(col * 5) * 2), phase: (row * cols + col) % 97 })
-        }
-      }
-      hotIndex = Math.floor(dots.length * 0.62)
-    }
-    resize()
-    window.addEventListener('resize', resize)
-    let tick = 0
-    const draw = () => {
-      tick += reduced ? 0 : 1
-      context.clearRect(0, 0, width, height)
-      for (let index = 0; index < dots.length; index += 1) {
-        const dot = dots[index]
-        if (index === hotIndex) continue
-        context.globalAlpha = 0.1 + 0.08 * Math.sin(tick * 0.02 + dot.phase)
-        context.fillStyle = 'rgba(0,39,51,0.5)'
-        context.beginPath(); context.arc(dot.x, dot.y, 1.4, 0, Math.PI * 2); context.fill()
-      }
-      const hot = dots[hotIndex]
-      if (hot) {
-        const radius = 4 + Math.sin(tick * 0.07) * 1.4
-        const glow = context.createRadialGradient(hot.x, hot.y, 0, hot.x, hot.y, radius * 5)
-        glow.addColorStop(0, 'rgba(255, 176, 122, .95)'); glow.addColorStop(1, 'rgba(255, 176, 122, 0)')
-        context.globalAlpha = 1; context.fillStyle = glow
-        context.beginPath(); context.arc(hot.x, hot.y, radius * 5, 0, Math.PI * 2); context.fill()
-        context.fillStyle = '#FAD2AA'
-        context.beginPath(); context.arc(hot.x, hot.y, radius * 0.6, 0, Math.PI * 2); context.fill()
-        context.font = '700 9px "DM Mono", monospace'; context.textAlign = 'center'
-        context.fillStyle = '#FAAA3C'
-        context.fillText(`score ${flagged >= 1 ? '0.99' : '—'}`, hot.x, hot.y - 14)
-      }
-      context.globalAlpha = 1
-      frame = window.requestAnimationFrame(draw)
-    }
-    draw()
-    return () => { window.cancelAnimationFrame(frame); window.removeEventListener('resize', resize) }
-  }, [flagged])
-  return <canvas ref={canvasRef} className="haystack-canvas" aria-hidden="true" />
-}
-
-/** Number that counts up from zero when it scrolls into view. */
-function CountUp({ value, decimals = 1, suffix = '%' }) {
-  const ref = useRef(null)
-  const [display, setDisplay] = useState(0)
-  useEffect(() => {
-    const element = ref.current
-    if (!element) return
-    if (typeof IntersectionObserver !== 'function') { setDisplay(value); return }
-    let frame = 0; let disposed = false
-    const observer = new IntersectionObserver(([entry]) => {
-      if (!entry.isIntersecting) return
-      observer.disconnect()
-      const start = performance.now()
-      const step = (now) => {
-        if (disposed) return
-        const progress = Math.min(1, (now - start) / 1100)
-        setDisplay(value * (1 - Math.pow(1 - progress, 3)))
-        if (progress < 1) frame = window.requestAnimationFrame(step)
-      }
-      frame = window.requestAnimationFrame(step)
-    }, { rootMargin: '-40px' })
-    observer.observe(element)
-    return () => { disposed = true; window.cancelAnimationFrame(frame); observer.disconnect() }
-  }, [value])
-  return <strong ref={ref}>{display.toFixed(decimals)}{suffix}</strong>
-}
-
-const FALLBACK_CANDIDATES = [
-  { name: 'random_forest', f1: 1, accuracy: 1, precision: 1, recall: 1, selected: true },
-  { name: 'extra_trees', f1: 1, accuracy: 1, precision: 1, recall: 1, selected: false },
-  { name: 'hist_gradient_boosting', f1: 0.99, accuracy: 0.99, precision: 0.99, recall: 0.99, selected: false },
-]
-
-const FEATURES = [
-  { icon: Radar, title: 'Autonomous detection', text: '20+ statistical, rule-based and ML checks sweep ERP, WMS, TMS and count data — nothing is tagged by hand, the mesh finds the drift itself.' },
-  { icon: GitFork, title: 'Cascade prediction', text: 'A dependency twin traces every finding downstream: which sequence, which dock, which line — with a modeled probability on every hop.' },
-  { icon: Euro, title: 'Impact in euros', text: '1,000 Monte-Carlo trials price each cascade — expected exposure, P90 tail risk, and the counterfactual value of every proposed control.' },
-  { icon: Bot, title: 'Five-specialist reasoning', text: 'The Issue Monitor, System Linker, Impact Tracer, Value Analyst, and Action Planner each check a clear part of the evidence before WALT combines the answer.' },
-  { icon: FileSearch, title: 'Document intelligence', text: 'Invoices, ASNs, PPAP packets and count sheets are parsed and cross-checked against the operation — missing release evidence blocks the batch.' },
-  { icon: ShieldCheck, title: 'Human-approved fixes', text: 'The AI recommends; a person approves. Source records are corrected at the origin, a rescan proves the defect is gone, and the value lands in an auditable ledger.' },
-]
-
-const PIPELINE = ['Detect', 'Trace', 'Quantify', 'Approve', 'Prove']
-
-export function Landing({ onEnter, theme = 'light', onToggleTheme }) {
+export function Landing({ onEnter, onSignedIn, principal, theme = 'light', onToggleTheme }) {
   const [exposure, setExposure] = useState(null)
-  const [mlModel, setMlModel] = useState(null)
+  const [email, setEmail] = useState(ACCOUNTS[0][0])
+  const [password, setPassword] = useState('nexusai2026')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  const account = useMemo(() => ACCOUNTS.find((item) => item[0] === email) || ACCOUNTS[0], [email])
+
+  const handleSignIn = async (event) => {
+    if (event) event.preventDefault()
+    setBusy(true)
+    setError('')
+    try {
+      const result = await api.signIn({ email, password })
+      window.localStorage.setItem('nexusai.session', JSON.stringify(result))
+      onSignedIn?.(result.user)
+    } catch (cause) {
+      setError(cause.message || 'Authentication failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   useEffect(() => {
     let cancelled = false
     api.dashboard().then((dashboard) => { if (!cancelled) setExposure(dashboard.metrics?.[0]?.value ?? null) }).catch(() => {})
-    api.system().then((system) => { if (!cancelled) setMlModel(system.model) }).catch(() => {})
     return () => { cancelled = true }
   }, [])
-  const candidates = mlModel?.candidates?.length ? mlModel.candidates : FALLBACK_CANDIDATES
-  const selected = candidates.find((candidate) => candidate.selected) || candidates[0]
-  return <div className="landing">
-    <nav className="landing-nav">
-      <span className="brand landing-brand"><VwLogo size={32} className="landing-vw-logo" /><span><strong>Warehouse Control Tower</strong><em>AI</em></span></span>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-        <button
-          className={`theme-toggle-btn ${theme === 'dark' ? 'is-dark' : ''}`}
-          onClick={onToggleTheme}
-          title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-          aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-        >
-          {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
-          <span>{theme === 'dark' ? 'Light' : 'Dark'}</span>
-        </button>
-        <button className="soft-button" onClick={onEnter}>Enter dashboard <ArrowRight size={14} /></button>
-      </div>
-    </nav>
 
-    <header className="landing-hero">
-      <CascadeField />
-      <div className="landing-hero-grid">
-        <div className="landing-hero-copy">
-          <Reveal as="span" className="live-chip"><Sparkles size={12} /> VW operational twin · multi-agent intelligence</Reveal>
-          <Reveal as="h1" delay={80}>One wrong number can stop an <em>assembly line.</em><br />Warehouse Control Tower AI finds it first.</Reveal>
-          <Reveal as="p" delay={160}>
-            Warehouse Control Tower AI watches a 72,900-record warehouse twin across ERP, WMS and TMS, detects the data drift no human would catch in time,
-            traces the cascade to its euro consequence — and fixes the source, with a person approving every change.
-          </Reveal>
-          <Reveal className="landing-cta" delay={240}>
-            <button className="primary-button landing-primary" onClick={onEnter}>Enter the command center <ArrowRight size={16} /></button>
-            {exposure !== null && <span className="landing-live"><i className="pulse-dot" />{currency(exposure)} at risk on the live twin right now</span>}
-          </Reveal>
-          <Reveal className="landing-hero-meta" delay={300}>
-            <span><i /> ERP / WMS / TMS</span>
-            <span><i /> 5 + 1 AI roles</span>
-            <span><i /> Human-approved actions</span>
-          </Reveal>
+  return (
+    <div className="landing">
+      <nav className="landing-nav">
+        <span className="brand landing-brand">
+          <VwLogo size={32} className="landing-vw-logo" />
+          <span><strong>Warehouse Control Tower</strong><em>AI</em></span>
+        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <button
+            className={`theme-toggle-btn ${theme === 'dark' ? 'is-dark' : ''}`}
+            onClick={onToggleTheme}
+            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+          >
+            {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+            <span>{theme === 'dark' ? 'Light' : 'Dark'}</span>
+          </button>
+          <button className="soft-button" onClick={onEnter}>Enter dashboard <ArrowRight size={14} /></button>
         </div>
+      </nav>
 
-        <Reveal className="landing-twin-panel" delay={140}>
-          <Suspense fallback={<div className="landing-twin-loading" aria-hidden="true" />}>
-            <VwTwinScene theme={theme} />
-          </Suspense>
-          <div className="landing-twin-hud-header">
-            <div className="landing-twin-brand-pill">
-              <VwLogo size={22} animated={false} className="landing-twin-hud-logo" />
-              <div>
-                <strong>VW OPERATIONAL TWIN</strong>
-                <span>WOLFSBURG DC · DECISION TELEMETRY</span>
+      <header className="landing-hero">
+        <CascadeField />
+        <div className="landing-hero-grid">
+          <div className="landing-hero-copy">
+            <Reveal className="landing-hero-auth" delay={80}>
+              {principal ? (
+                <>
+                  <div className="landing-auth-header">
+                    <span className="live-chip"><Sparkles size={12} /> Governed Session Active</span>
+                    <h2>Welcome back, <em>{principal.name || principal.email?.split('@')[0]}</em></h2>
+                    <p>Connected to site-scoped decision layer. Ready to monitor the live twin.</p>
+                  </div>
+                  <div className="account-card">
+                    <ShieldCheck size={18} />
+                    <div>
+                      <strong>{principal.role_label || principal.role}</strong>
+                      <span>{principal.site || 'All sites'} scope</span>
+                    </div>
+                    <b>{principal.email?.split('@')[0]}</b>
+                  </div>
+                  <div className="landing-cta" style={{ marginTop: '16px' }}>
+                    <button className="primary-button landing-primary" style={{ width: '100%' }} onClick={onEnter}>
+                      Enter the command center <ArrowRight size={16} />
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="landing-auth-header">
+                    <span className="live-chip"><Sparkles size={12} /> Governed operations workspace</span>
+                    <h2>Sign in to the <em>Command Center</em></h2>
+                    <p>Choose a seeded role to enter the decision layer and monitor the live twin.</p>
+                  </div>
+                  <form onSubmit={handleSignIn} className="auth-form landing-auth-form">
+                    <label>
+                      Demo account
+                      <select value={email} onChange={(event) => setEmail(event.target.value)}>
+                        {ACCOUNTS.map(([val, role, site]) => (
+                          <option value={val} key={val}>{val} · {role} · {site}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <div className="account-card">
+                      <ShieldCheck size={18} />
+                      <div>
+                        <strong>{account[1]}</strong>
+                        <span>{account[2]} scope</span>
+                      </div>
+                      <b>{account[0].split('@')[0]}</b>
+                    </div>
+                    <label>
+                      Password
+                      <input
+                        type="password"
+                        value={password}
+                        onChange={(event) => setPassword(event.target.value)}
+                        autoComplete="current-password"
+                      />
+                    </label>
+                    {error && <p className="form-error">{error}</p>}
+                    <button className="primary-button landing-primary auth-submit" disabled={busy} type="submit">
+                      {busy ? 'Opening workspace…' : 'Enter the command center'}
+                      <ArrowRight size={16} />
+                    </button>
+                  </form>
+                </>
+              )}
+              {exposure !== null && (
+                <span className="landing-live" style={{ marginTop: '14px', display: 'flex' }}>
+                  <i className="pulse-dot" />{currency(exposure)} at risk on the live twin right now
+                </span>
+              )}
+            </Reveal>
+            <Reveal className="landing-hero-meta" delay={200}>
+              <span><i /> ERP / WMS / TMS</span>
+              <span><i /> 5 + 1 AI roles</span>
+              <span><i /> Human-approved actions</span>
+            </Reveal>
+          </div>
+
+          <Reveal className="landing-twin-panel" delay={140}>
+            <Suspense fallback={<div className="landing-twin-loading" aria-hidden="true" />}>
+              <VwTwinScene theme={theme} />
+            </Suspense>
+            <div className="landing-twin-hud-header">
+              <div className="landing-twin-brand-pill">
+                <VwLogo size={22} animated={false} className="landing-twin-hud-logo" />
+                <div>
+                  <strong>VW OPERATIONAL TWIN</strong>
+                  <span>WOLFSBURG DC · DECISION TELEMETRY</span>
+                </div>
+              </div>
+              <div className="landing-twin-hud-status">
+                <i className="pulse-dot" />
+                <span>LIVE MESH SIGNAL</span>
               </div>
             </div>
-            <div className="landing-twin-hud-status">
-              <i className="pulse-dot" />
-              <span>LIVE MESH SIGNAL</span>
-            </div>
-          </div>
-          <div className="landing-twin-readout landing-twin-readout-left"><strong>72,900</strong><span>records watched</span></div>
-          <div className="landing-twin-readout landing-twin-readout-right"><strong>38</strong><span>live findings</span></div>
-          <div className="landing-twin-route"><span>detect</span><i /><span>trace</span><i /><span>approve</span></div>
-        </Reveal>
-      </div>
-    </header>
-
-    <Reveal as="section" className="landing-stats">
-      {[['72,900', 'twin records watched'], ['5 + 1', 'specialist agents & orchestrator'], ['20+', 'autonomous checks'], ['1,000', 'Monte-Carlo trials per cascade'], ['< 5 min', 'from drift to detection']].map(([value, label]) => (
-        <div key={label}><strong>{value}</strong><span>{label}</span></div>
-      ))}
-    </Reveal>
-
-    <section className="landing-features">
-      <Reveal className="landing-section-head">
-        <span className="eyebrow"><Waypoints size={13} /> What the mesh does</span>
-        <h2>From a silent data error to a <em>signed, priced, audited</em> fix.</h2>
-      </Reveal>
-      <div className="landing-feature-grid">
-        {FEATURES.map(({ icon: Icon, title, text }, index) => (
-          <Reveal as="article" key={title} className="card-surface landing-feature" delay={(index % 3) * 80}>
-            <span className="landing-feature-icon"><Icon size={17} /></span>
-            <h3>{title}</h3><p>{text}</p>
+            <div className="landing-twin-readout landing-twin-readout-left"><strong>72,900</strong><span>records watched</span></div>
+            <div className="landing-twin-readout landing-twin-readout-right"><strong>38</strong><span>live findings</span></div>
+            <div className="landing-twin-route"><span>detect</span><i /><span>trace</span><i /><span>approve</span></div>
           </Reveal>
-        ))}
-      </div>
-    </section>
-
-    <Reveal as="section" className="landing-pipeline">
-      {PIPELINE.map((step, index) => (
-        <div key={step} className="landing-step">
-          <span className="landing-step-index">{index + 1}</span><strong>{step}</strong>
-          {index < PIPELINE.length - 1 && <ArrowRight size={14} className="landing-step-arrow" />}
         </div>
-      ))}
-    </Reveal>
-
-    <section className="landing-mesh">
-      <Reveal className="landing-section-head centered">
-        <span className="eyebrow"><Bot size={13} /> Multi-LLM architecture</span>
-        <h2>Five specialists <em>argue from evidence.</em> One orchestrator decides.</h2>
-        <p>Each specialist has one understandable job and its own curated evidence. Their structured handoffs stream into the WALT Coordinator, which combines them into one grounded operator decision. Every claim must cite a finding ID; unsourced claims are a system failure.</p>
-      </Reveal>
-      <Reveal className="mesh-stage" delay={120}><AgentMeshField /></Reveal>
-      <Reveal className="mesh-facts" delay={200}>
-        {SPECIALIST_ORBS.map((orb) => (
-          <div key={orb.name} className="mesh-fact"><i style={{ background: orb.color, boxShadow: `0 0 9px ${orb.color}` }} /><div><strong>{orb.name}</strong><span>{orb.role} · temp {orb.temp}</span></div></div>
-        ))}
-      </Reveal>
-    </section>
-
-    <section className="landing-ml">
-      <Reveal className="landing-section-head centered">
-        <span className="eyebrow"><Radar size={13} /> Measured machine learning</span>
-        <h2>Three models compete. The best <em>F1</em> goes live.</h2>
-        <p>Extra trees, random forest and gradient boosting train on the same temporal holdout; the winner scores all {(mlModel?.scored_positions ?? 15000).toLocaleString()} inventory positions. F1 wins over raw accuracy because faults are rare — a model that calls everything “normal” would score 99% accuracy and catch nothing.</p>
-      </Reveal>
-      <div className="ml-grid">
-        <Reveal className="card-surface ml-benchmark" delay={80}>
-          <span className="ml-card-label">Live benchmark · {mlModel ? 'from the running system' : 'connecting…'}</span>
-          {candidates.map((candidate) => (
-            <div key={candidate.name} className={`ml-bar-row ${candidate.selected ? 'winner' : ''}`}>
-              <span className="ml-bar-name">{candidate.name.replaceAll('_', ' ')}{candidate.selected && <em>live</em>}</span>
-              <div className="ml-bar-track"><i style={{ width: `${candidate.f1 * 100}%` }} /></div>
-              <b>F1 {(candidate.f1 * 100).toFixed(1)}%</b>
-            </div>
-          ))}
-          <div className="ml-metric-row">
-            <div><CountUp value={(selected?.accuracy ?? 1) * 100} /><span>accuracy</span></div>
-            <div><CountUp value={(selected?.precision ?? 1) * 100} /><span>precision</span></div>
-            <div><CountUp value={(selected?.recall ?? 1) * 100} /><span>recall</span></div>
-            <div><CountUp value={1500} decimals={0} suffix="" /><span>labeled records</span></div>
-          </div>
-        </Reveal>
-        <Reveal className="card-surface ml-haystack" delay={160}>
-          <span className="ml-card-label">The needle, live</span>
-          <HaystackField flagged={mlModel?.flagged_over_50 ?? 1} />
-          <p>{(mlModel?.scored_positions ?? 15000).toLocaleString()} positions scored — {mlModel?.flagged_over_50 ?? 1} crosses the alarm line. Statistical noise never pages an operator: a finding needs a real quantity spread <b>and</b> a model score ≥ .5.</p>
-        </Reveal>
-      </div>
-    </section>
-
-    <Reveal as="section" className="landing-closing">
-      <h2>The demo is live. The data is <em>really</em> dirty.</h2>
-      <p>Every finding on the board was discovered, not scripted — inject a fresh incident yourself and watch the mesh catch it.</p>
-      <button className="primary-button landing-primary" onClick={onEnter}>Open Control Tower AI <ArrowRight size={16} /></button>
-      <footer><span>Warehouse Control Tower AI · VW Wolfsburg DC operational twin · human-approved operations</span></footer>
-    </Reveal>
-  </div>
+      </header>
+    </div>
+  )
 }
