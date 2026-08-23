@@ -20,7 +20,6 @@ import { Outcomes } from './pages/Outcomes'
 import { Reconciliation } from './pages/Reconciliation'
 import { RiskIntelligence } from './pages/RiskIntelligence'
 import { SystemHealth } from './pages/SystemHealth'
-import { SignIn } from './pages/SignIn'
 import { ChangeControl } from './pages/ChangeControl'
 import { AuditArchive } from './pages/AuditArchive'
 import { AccessPolicyConsole } from './pages/AccessPolicyConsole'
@@ -162,38 +161,39 @@ export default function App() {
   const escalationCount = openAlerts.filter((item) => ['critical', 'high'].includes(item.severity)).length
   const currentRequest = changeRequests.find((item) => String(item.status).startsWith('awaiting_')) || changeRequests[0]
   const fallbackWorkflowPreview = !currentRequest && openAlerts[0] ? { severity: openAlerts[0].severity, impact_euros: openAlerts[0].impact, title: openAlerts[0].title } : null
-  // The landing page owns the full viewport — no sidebar, topbar or drawers.
-  if (page === 'home') {
+  const handleSignOut = async () => {
+    await api.signOut().catch(() => null)
+    clearSession()
+    setPrincipal(null)
+    navigate('home')
+  }
+
+  // The landing page owns the full viewport and handles all role authentication
+  if (page === 'home' || page === 'signin' || !principal) {
     return (
       <Landing
-        onEnter={async () => {
+        onEnter={() => {
           if (principal) {
             navigate('command')
           } else {
-            try {
-              const result = await api.signIn({ email: 'operator1@nexusai.demo', password: 'nexusai2026' })
-              window.localStorage.setItem('nexusai.session', JSON.stringify(result))
-              setPrincipal(result.user)
-              navigate('command')
-            } catch {
-              navigate('command')
-            }
+            const formElement = document.querySelector('.landing-auth-form')
+            formElement?.scrollIntoView({ behavior: 'smooth' })
           }
         }}
         onSignedIn={(user) => {
           setPrincipal(user)
           navigate('command')
         }}
+        onSignOut={handleSignOut}
         principal={principal}
         theme={theme}
         onToggleTheme={toggleTheme}
       />
     )
   }
-  if (page === 'signin' || !principal) return <SignIn onSignedIn={(user) => { setPrincipal(user); navigate(page === 'signin' ? 'command' : page) }} />
   return <div className={`app-shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
     {sidebarOpen && <div className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} aria-hidden="true" />}
-    <div className={`sidebar-wrap ${sidebarOpen ? 'open' : ''}`}><Sidebar activePage={visiblePage} collapsed={sidebarCollapsed} onToggleCollapse={() => setSidebarCollapsed((current) => !current)} onNavigate={navigate} alertCount={openAlerts.length} onClose={() => setSidebarOpen(false)} principal={principal} onSignOut={async () => { await api.signOut().catch(() => null); clearSession(); setPrincipal(null); navigate('signin') }} /></div>
+    <div className={`sidebar-wrap ${sidebarOpen ? 'open' : ''}`}><Sidebar activePage={visiblePage} collapsed={sidebarCollapsed} onToggleCollapse={() => setSidebarCollapsed((current) => !current)} onNavigate={navigate} alertCount={openAlerts.length} onClose={() => setSidebarOpen(false)} principal={principal} onSignOut={handleSignOut} /></div>
     <main className="main-shell"><Topbar title={title} subtitle={subtitle} theme={theme} onToggleTheme={toggleTheme} onScan={runScan} scanning={scanning} onMenu={() => setSidebarOpen((open) => !open)} onTour={() => setTourOpen(true)} onBell={() => setBellOpen((open) => !open)} onNotifications={() => setNotificationOpen((open) => !open)} escalationCount={escalationCount} notificationCount={notifications.filter((item) => !item.read).length} />{pulse && <div className="realtime-indicator"><Wifi size={13} />Mesh live · {pulse.active_findings} active signals</div>}<div className="global-approval-flow"><ApprovalHierarchy compact request={currentRequest} preview={fallbackWorkflowPreview} onOpenLedger={() => navigate('changes')} /></div>
       {loading ? <div className="app-loading"><div className="loading-orbit"><LoaderCircle className="spin" size={31} /></div><h2>Warming the operational twin</h2><p>Loading specialist-agent context and synthetic logistics signals…</p></div> : error ? <div className="connection-error"><AlertTriangle size={25} /><h2>Operations API unavailable</h2><p>{error}</p><button className="primary-button" onClick={loadCore}><RefreshCw size={16} />Try again</button></div> : content}
     </main>

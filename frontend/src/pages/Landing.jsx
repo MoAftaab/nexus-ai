@@ -205,7 +205,7 @@ function CascadeField() {
   return <canvas ref={canvasRef} className="landing-canvas" aria-hidden="true" />
 }
 
-export function Landing({ onEnter, onSignedIn, principal, theme = 'light', onToggleTheme }) {
+export function Landing({ onEnter, onSignedIn, onSignOut, principal, theme = 'light', onToggleTheme }) {
   const [exposure, setExposure] = useState(null)
   const [email, setEmail] = useState(ACCOUNTS[0][0])
   const [password, setPassword] = useState('nexusai2026')
@@ -252,7 +252,9 @@ export function Landing({ onEnter, onSignedIn, principal, theme = 'light', onTog
             {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
             <span>{theme === 'dark' ? 'Light' : 'Dark'}</span>
           </button>
-          <button className="soft-button" onClick={onEnter}>Enter dashboard <ArrowRight size={14} /></button>
+          <button className="soft-button" onClick={onEnter}>
+            {principal ? 'Enter dashboard' : 'Sign in'} <ArrowRight size={14} />
+          </button>
         </div>
       </nav>
 
@@ -276,10 +278,20 @@ export function Landing({ onEnter, onSignedIn, principal, theme = 'light', onTog
                     </div>
                     <b>{principal.email?.split('@')[0]}</b>
                   </div>
-                  <div className="landing-cta" style={{ marginTop: '16px' }}>
+                  <div className="landing-cta" style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     <button className="primary-button landing-primary" style={{ width: '100%' }} onClick={onEnter}>
                       Enter the command center <ArrowRight size={16} />
                     </button>
+                    {onSignOut && (
+                      <button
+                        className="soft-button"
+                        style={{ width: '100%', justifyContent: 'center', opacity: 0.85, fontSize: '12px' }}
+                        onClick={onSignOut}
+                        type="button"
+                      >
+                        Switch account / Sign in as another role
+                      </button>
+                    )}
                   </div>
                 </>
               ) : (
