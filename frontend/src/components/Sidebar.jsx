@@ -77,6 +77,7 @@ export function Sidebar({ activePage, collapsed = false, onToggleCollapse, onNav
         </div>
         <button className="signout-btn" aria-label="Sign out" title="Sign out" onClick={onSignOut}>
           <LogOut size={15} />
+          <span className="signout-btn-text">Sign out</span>
         </button>
       </div>
     </div>

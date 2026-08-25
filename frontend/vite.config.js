@@ -7,15 +7,15 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'https://nexus-ai-8r6f.onrender.com',
+        target: process.env.VITE_API_URL || 'http://127.0.0.1:8000',
         changeOrigin: true,
-        secure: true,
+        secure: false,
       },
       '/ws': {
-        target: 'wss://nexus-ai-8r6f.onrender.com',
+        target: (process.env.VITE_API_URL || 'http://127.0.0.1:8000').replace(/^http/, 'ws'),
         ws: true,
         changeOrigin: true,
-        secure: true,
+        secure: false,
       },
     },
   },

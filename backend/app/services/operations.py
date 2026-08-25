@@ -935,7 +935,13 @@ class OperationsStore:
                 "scored_positions": len(scores),
                 "flagged_over_50": sum(1 for _, score in scores if score >= .5),
             },
-            "llm": {"provider": "OpenAI", "model": self.settings.openai_model, "enabled": bool(self.settings.openai_api_key), "specialists": 5, "role": "Specialist mesh + orchestrator synthesis"},
+            "llm": {
+                "provider": "Direct OpenAI" if self._get_active_provider() == "openai" else "AgentRouter Claude" if self._get_active_provider() == "agentrouter" else "Deterministic Fallback",
+                "model": self._get_active_model(),
+                "enabled": self._get_active_provider() != "deterministic",
+                "specialists": 5,
+                "role": "Specialist mesh + orchestrator synthesis",
+            },
             "score_distribution": [{"bucket": f".{index}", "count": count} for index, count in enumerate(buckets)],
             "top_scored": top,
             "runtime": {
@@ -948,11 +954,25 @@ class OperationsStore:
             },
         }
 
+    def _get_active_provider(self) -> str:
+        try:
+            from app.services.llm_client import get_llm_client
+            return get_llm_client(self.settings).active_provider
+        except Exception:
+            return "openai" if self.settings.openai_api_key else "agentrouter" if self.settings.agentrouter_api_key else "deterministic"
+
+    def _get_active_model(self) -> str:
+        try:
+            from app.services.llm_client import get_llm_client
+            return get_llm_client(self.settings).active_model
+        except Exception:
+            return self.settings.openai_model
+
     def audit(self) -> list[dict[str, str]]:
         return self.repository.audit()
 
     def agent_architecture(self) -> dict[str, object]:
-        return {"model": "gpt-5.4-mini", "orchestrator": "Orchestrator Agent", "specialists": [
+        return {"model": self._get_active_model(), "orchestrator": "Orchestrator Agent", "specialists": [
             {"name": "Orchestrator Agent", "responsibility": "Assigns tasks to the right AI agents based on their capabilities and coordinates the overall workflow", "input": "Operator prompts + Specialist handoffs"},
             {"name": "Monitor Agent", "responsibility": "Monitors warehouse data and detects anomalies", "input": "Generated source records + selected ML score"},
             {"name": "Investigator Agent", "responsibility": "Identifies root causes by correlating data across systems", "input": "Verified findings + Markdown retrieval"},

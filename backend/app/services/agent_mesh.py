@@ -27,6 +27,7 @@ from app.config import Settings
 from app.models import ChatRequest, ChatResponse
 from app.services.operations import OperationsStore
 from app.services.knowledge_base import retrieve_for_role, retrieve_markdown
+from app.services.llm_client import get_llm_client
 
 logger = logging.getLogger(__name__)
 
@@ -649,26 +650,30 @@ def deterministic_mesh(request: ChatRequest, store: OperationsStore) -> ChatResp
 
 
 async def _consult_specialist(
-    client, model: str, name: str, role: str, context: str, question: str, recent: str,
+    llm_client, name: str, role: str, context: str, question: str, recent: str,
 ) -> tuple[str, str, str]:
     """Run a single specialist agent and return ``(name, role, handoff_text)``.
 
     Individual failures are caught so that one broken agent does not crash the
     entire mesh.  The orchestrator receives a clear failure note and can still
-    synthesize from the remaining four specialists.
+    synthesize from the remaining specialists.
     """
     try:
-        response = await client.responses.create(
-            model=model,
-            temperature=SPECIALIST_TEMPERATURES[name],
-            instructions=SPECIALIST_PROMPTS[name],
-            input=(
-                f"OPERATOR QUESTION\n{question}\n\n"
-                f"RECENT CONVERSATION\n{recent}\n\n"
-                f"{context}"
-            ),
+        input_text = (
+            f"OPERATOR QUESTION\n{question}\n\n"
+            f"RECENT CONVERSATION\n{recent}\n\n"
+            f"{context}"
         )
-        return name, role, response.output_text
+        text, _ = await asyncio.wait_for(
+            llm_client.generate(
+                instructions=SPECIALIST_PROMPTS[name],
+                input_text=input_text,
+                temperature=SPECIALIST_TEMPERATURES[name],
+                max_tokens=350,
+            ),
+            timeout=15.0,
+        )
+        return name, role, text
     except Exception as exc:
         logger.warning("Specialist %s failed: %s", name, exc)
         return (
@@ -679,7 +684,7 @@ async def _consult_specialist(
         )
 
 
-async def _run_all_specialists(client, model: str, request: ChatRequest, store: OperationsStore):
+async def _run_all_specialists(llm_client, request: ChatRequest, store: OperationsStore):
     """Run every specialist in parallel with role-curated context.
 
     Returns ``(handoffs, unique_markdown, anomaly_ids)``.
@@ -697,7 +702,7 @@ async def _run_all_specialists(client, model: str, request: ChatRequest, store: 
         context, markdown = _role_context(name, finding_text, request.message)
         all_markdown.extend(markdown)
         tasks.append(
-            _consult_specialist(client, model, name, role, context, request.message, recent)
+            _consult_specialist(llm_client, name, role, context, request.message, recent)
         )
 
     handoffs = await asyncio.gather(*tasks)
@@ -718,14 +723,14 @@ def _build_synthesis_input(handoffs) -> str:
     return "\n\n".join(f"## {name} — {role}\n{note}" for name, role, note in handoffs)
 
 
-def _build_trace(handoffs, markdown, include_orchestrator: bool = False) -> list[dict[str, str]]:
+def _build_trace(handoffs, markdown, model_name: str = "AgentRouter Claude", include_orchestrator: bool = False) -> list[dict[str, str]]:
     """Build the agent-trace metadata array for the frontend."""
     trace = [
         {
             "agent": name,
             "role": role,
             "status": "completed" if not note.startswith("[Agent temporarily") else "degraded",
-            "detail": f"GPT-5.4 mini handoff (temperature={SPECIALIST_TEMPERATURES.get(name, '?')})",
+            "detail": f"{model_name} handoff (temperature={SPECIALIST_TEMPERATURES.get(name, '?')})",
         }
         for name, role, note in handoffs
     ]
@@ -740,7 +745,7 @@ def _build_trace(handoffs, markdown, include_orchestrator: bool = False) -> list
             "agent": "Control Tower",
             "role": "Orchestrator",
             "status": "synthesized",
-            "detail": f"GPT-5.4 mini merged specialist handoffs (temperature={ORCHESTRATOR_TEMPERATURE})",
+            "detail": f"{model_name} merged specialist handoffs (temperature={ORCHESTRATOR_TEMPERATURE})",
         })
     return trace
 
@@ -752,30 +757,31 @@ def _build_trace(handoffs, markdown, include_orchestrator: bool = False) -> list
 
 async def run_agent_mesh(request: ChatRequest, store: OperationsStore, settings: Settings) -> ChatResponse:
     """Run all specialist roles in parallel and synthesize their audited handoff."""
-    if not settings.openai_api_key or _needs_deterministic_answer(request):
+    if _needs_deterministic_answer(request):
         return deterministic_mesh(request, store)
-    from openai import AsyncOpenAI
+
+    llm_client = get_llm_client(settings)
+    if llm_client.active_provider == "deterministic" and not (settings.openai_api_key or settings.agentrouter_api_key):
+        return deterministic_mesh(request, store)
 
     try:
-        client = AsyncOpenAI(api_key=settings.openai_api_key)
-        handoffs, markdown, ids = await _run_all_specialists(client, settings.openai_model, request, store)
-
+        handoffs, markdown, ids = await _run_all_specialists(llm_client, request, store)
         synthesis_input = _build_synthesis_input(handoffs)
-        final = await client.responses.create(
-            model=settings.openai_model,
-            temperature=ORCHESTRATOR_TEMPERATURE,
+        final_text, provider = await llm_client.generate(
             instructions=ORCHESTRATOR_PROMPT,
-            input=f"OPERATOR QUESTION\n{request.message}\n\nSPECIALIST HANDOFFS\n{synthesis_input}",
+            input_text=f"OPERATOR QUESTION\n{request.message}\n\nSPECIALIST HANDOFFS\n{synthesis_input}",
+            temperature=ORCHESTRATOR_TEMPERATURE,
+            max_tokens=2048,
         )
 
         relevant = [store.anomaly(item_id) for item_id in ids]
         actions = [action.title for item in relevant if item for action in item.actions][:3]
-        trace = _build_trace(handoffs, markdown, include_orchestrator=True)
-        if not _validate_model_answer(final.output_text, ids):
+        trace = _build_trace(handoffs, markdown, model_name=llm_client.active_model, include_orchestrator=True)
+        if not _validate_model_answer(final_text, ids):
             return deterministic_mesh(request, store)
         return ChatResponse(
-            answer=final.output_text.strip(),
-            source="openai",
+            answer=final_text.strip(),
+            source=provider,
             cited_anomaly_ids=ids,
             suggested_actions=actions,
             agent_trace=trace,
@@ -783,13 +789,13 @@ async def run_agent_mesh(request: ChatRequest, store: OperationsStore, settings:
             source_refs=ids,
         )
     except Exception as exc:
-        logger.exception("OpenAI agent mesh failed; serving current operational evidence: %s", exc)
+        logger.exception("Agent mesh failed; serving current operational evidence: %s", exc)
         return deterministic_mesh(request, store)
 
 
 async def stream_agent_mesh(request: ChatRequest, store: OperationsStore, settings: Settings) -> AsyncIterator[str]:
     """SSE stream: specialist handoff trace first, then token deltas from the orchestrator."""
-    if not settings.openai_api_key or _needs_deterministic_answer(request):
+    if _needs_deterministic_answer(request):
         evidence = deterministic_mesh(request, store)
         yield f"event: trace\ndata: {json.dumps(evidence.agent_trace)}\n\n"
         for word in evidence.answer.split(" "):
@@ -797,28 +803,30 @@ async def stream_agent_mesh(request: ChatRequest, store: OperationsStore, settin
         yield f"event: done\ndata: {json.dumps({'source': evidence.source, 'cited_anomaly_ids': evidence.cited_anomaly_ids, 'suggested_actions': evidence.suggested_actions, 'confidence': evidence.confidence, 'source_refs': evidence.source_refs})}\n\n"
         return
 
-    from openai import AsyncOpenAI
+    llm_client = get_llm_client(settings)
+    if llm_client.active_provider == "deterministic" and not (settings.openai_api_key or settings.agentrouter_api_key):
+        evidence = deterministic_mesh(request, store)
+        yield f"event: trace\ndata: {json.dumps(evidence.agent_trace)}\n\n"
+        for word in evidence.answer.split(" "):
+            yield f"event: delta\ndata: {json.dumps({'text': word + ' '})}\n\n"
+        yield f"event: done\ndata: {json.dumps({'source': evidence.source, 'cited_anomaly_ids': evidence.cited_anomaly_ids, 'suggested_actions': evidence.suggested_actions, 'confidence': evidence.confidence, 'source_refs': evidence.source_refs})}\n\n"
+        return
 
     try:
-        client = AsyncOpenAI(api_key=settings.openai_api_key)
-        handoffs, markdown, ids = await _run_all_specialists(client, settings.openai_model, request, store)
-
-        trace = _build_trace(handoffs, markdown)
+        handoffs, markdown, ids = await _run_all_specialists(llm_client, request, store)
+        trace = _build_trace(handoffs, markdown, model_name=llm_client.active_model)
         yield f"event: trace\ndata: {json.dumps(trace)}\n\n"
 
         synthesis_input = _build_synthesis_input(handoffs)
-        stream = await client.responses.create(
-            model=settings.openai_model,
-            temperature=ORCHESTRATOR_TEMPERATURE,
-            stream=True,
-            instructions=ORCHESTRATOR_PROMPT,
-            input=f"OPERATOR QUESTION\n{request.message}\n\nSPECIALIST HANDOFFS\n{synthesis_input}",
-        )
         chunks = []
-        async for event in stream:
-            if event.type == "response.output_text.delta":
-                chunks.append(event.delta)
-                yield f"event: delta\ndata: {json.dumps({'text': event.delta})}\n\n"
+        async for token in llm_client.stream(
+            instructions=ORCHESTRATOR_PROMPT,
+            input_text=f"OPERATOR QUESTION\n{request.message}\n\nSPECIALIST HANDOFFS\n{synthesis_input}",
+            temperature=ORCHESTRATOR_TEMPERATURE,
+            max_tokens=2048,
+        ):
+            chunks.append(token)
+            yield f"event: delta\ndata: {json.dumps({'text': token})}\n\n"
 
         if not _validate_model_answer("".join(chunks), ids):
             evidence = deterministic_mesh(request, store)
@@ -826,9 +834,10 @@ async def stream_agent_mesh(request: ChatRequest, store: OperationsStore, settin
             yield f"event: trace\ndata: {json.dumps(evidence.agent_trace)}\n\n"
             yield f"event: done\ndata: {json.dumps({'source': evidence.source, 'cited_anomaly_ids': evidence.cited_anomaly_ids, 'suggested_actions': evidence.suggested_actions, 'confidence': evidence.confidence, 'source_refs': evidence.source_refs})}\n\n"
             return
+
         relevant = [store.anomaly(item_id) for item_id in ids]
         actions = [action.title for item in relevant if item for action in item.actions][:3]
-        yield f"event: done\ndata: {json.dumps({'source': 'openai', 'cited_anomaly_ids': ids, 'suggested_actions': actions, 'confidence': 'medium' if ids else 'low', 'source_refs': ids})}\n\n"
+        yield f"event: done\ndata: {json.dumps({'source': llm_client.active_provider, 'cited_anomaly_ids': ids, 'suggested_actions': actions, 'confidence': 'medium' if ids else 'low', 'source_refs': ids})}\n\n"
     except Exception as exc:
         logger.exception("Streaming agent mesh failed; switching to current operational evidence: %s", exc)
         evidence = deterministic_mesh(request, store)

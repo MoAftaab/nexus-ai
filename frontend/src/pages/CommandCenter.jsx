@@ -3,6 +3,7 @@ import {
   ArrowUpRight,
   BadgeEuro,
   CircleAlert,
+  Flame,
   Gauge,
   Layers,
   Radio,
@@ -13,7 +14,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts'
-import { currency, timeAgo } from '../utils'
+import { compactCurrency, currency, timeAgo } from '../utils'
 import {
   buildApprovalPipeline,
   buildExposureBySeverity,
@@ -146,10 +147,30 @@ export function CommandCenter({ dashboard, workflow, outcomes, anomalies, onNavi
           </div>
           <div className="cc-horizon-body">
             <div className={`cc-horizon-lead ${urgent.findings ? '' : 'clear'}`}>
-              <strong>{urgent.findings ? currency(urgent.exposure) : 'Clear'}</strong>
-              <em>{urgent.findings ? 'hits the line within 2 hours' : 'nothing lands in the next 2 hours'}</em>
-              <span>{urgent.findings} of {open.length}</span>
+              <div className="cc-horizon-lead-main">
+                <span className="cc-horizon-lead-badge">
+                  {urgent.findings ? (
+                    <>
+                      <Flame size={11} className="cc-flame-icon" />
+                      <span>Immediate (&lt;2h)</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles size={11} />
+                      <span>Line Stable</span>
+                    </>
+                  )}
+                </span>
+                <div className="cc-horizon-lead-text">
+                  <strong>{urgent.findings ? currency(urgent.exposure) : '€0'}</strong>
+                  <em>{urgent.findings ? 'hits line within 2h' : 'no immediate threat'}</em>
+                </div>
+              </div>
+              <div className="cc-horizon-lead-stat">
+                <b>{urgent.findings}</b> of {open.length} findings
+              </div>
             </div>
+
             {horizonBand.length ? (
               <div className="cc-horizon-band">
                 {horizonBand.map((bucket) => (
@@ -159,18 +180,39 @@ export function CommandCenter({ dashboard, workflow, outcomes, anomalies, onNavi
             ) : (
               <div className="cc-horizon-band" />
             )}
+
             <div className="cc-horizon-legend">
-              {horizon.map((bucket) => (
-                <div
-                  key={bucket.label}
-                  className={`cc-horizon-item ${bucket.findings ? '' : 'empty'}`}
-                  style={{ '--bucket': bucket.color }}
-                >
-                  <span>{bucket.label}</span>
-                  <strong>{currency(bucket.exposure)}</strong>
-                  <small>{bucket.findings} open · {bucket.share}%</small>
-                </div>
-              ))}
+              {horizon.map((bucket) => {
+                const exactExposure = currency(bucket.exposure)
+                const displayExposure = compactCurrency(bucket.exposure)
+                return (
+                  <div
+                    key={bucket.label}
+                    className={`cc-horizon-item ${bucket.findings ? '' : 'empty'}`}
+                    style={{ '--bucket': bucket.color }}
+                    title={`${bucket.label}: ${exactExposure} (${bucket.findings} open findings, ${bucket.share}% share)`}
+                  >
+                    <div className="cc-horizon-item-top">
+                      <span className="cc-horizon-tag">
+                        <i className="cc-horizon-dot" />
+                        {bucket.label}
+                      </span>
+                      <span className="cc-horizon-share">{bucket.share}%</span>
+                    </div>
+                    <div className="cc-horizon-item-value">
+                      <strong title={exactExposure}>{displayExposure}</strong>
+                    </div>
+                    <div className="cc-horizon-item-bottom">
+                      <span className="cc-horizon-count">
+                        <b>{bucket.findings}</b> open
+                      </span>
+                      <div className="cc-horizon-meter">
+                        <span style={{ width: `${Math.max(6, bucket.share)}%`, background: bucket.color }} />
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           </div>
         </div>

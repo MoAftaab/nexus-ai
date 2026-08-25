@@ -99,7 +99,7 @@ class WaltFeedbackRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     answer: str
-    source: Literal["openai", "operational_evidence"]
+    source: Literal["openai", "agentrouter", "claude", "operational_evidence", "nexus_deterministic"] = "agentrouter"
     cited_anomaly_ids: list[str]
     suggested_actions: list[str]
     agent_trace: list[dict[str, str]] = Field(default_factory=list)

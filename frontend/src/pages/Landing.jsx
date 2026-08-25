@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowRight, Moon, ShieldCheck, Sparkles, Sun } from 'lucide-react'
+import { ArrowRight, LogOut, Moon, ShieldCheck, Sparkles, Sun } from 'lucide-react'
 import { api } from '../api'
 import { currency } from '../utils'
 import { VwLogo } from '../components/VwLogo'
@@ -242,7 +242,7 @@ export function Landing({ onEnter, onSignedIn, onSignOut, principal, theme = 'li
           <VwLogo size={32} className="landing-vw-logo" />
           <span><strong>Warehouse Control Tower</strong><em>AI</em></span>
         </span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
           <button
             className={`theme-toggle-btn ${theme === 'dark' ? 'is-dark' : ''}`}
             onClick={onToggleTheme}
@@ -252,6 +252,16 @@ export function Landing({ onEnter, onSignedIn, onSignOut, principal, theme = 'li
             {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
             <span>{theme === 'dark' ? 'Light' : 'Dark'}</span>
           </button>
+          {principal && onSignOut && (
+            <button
+              className="soft-button landing-signout-nav"
+              onClick={onSignOut}
+              title="Sign out of current account"
+            >
+              <LogOut size={13} />
+              <span>Logout</span>
+            </button>
+          )}
           <button className="soft-button" onClick={onEnter}>
             <span>{principal ? 'Enter dashboard' : 'Sign in'}</span>
             <ArrowRight size={14} />

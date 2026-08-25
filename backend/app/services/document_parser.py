@@ -54,14 +54,20 @@ def render_preview(filename: str, raw: bytes, preview_path: Path) -> Path | None
 
 
 async def extract_with_openai_vision(settings: Settings, filename: str, preview: Path | None, text: str) -> str:
-    """Use the mandated mini model only when a scanned document has no readable text."""
-    if text.strip() or not preview or not settings.openai_api_key:
+    """Extract operational identifiers from scanned documents using LLM vision."""
+    if text.strip() or not preview:
         return text
-    from openai import AsyncOpenAI
-    encoded = base64.b64encode(preview.read_bytes()).decode("ascii")
-    client = AsyncOpenAI(api_key=settings.openai_api_key)
-    response = await client.responses.create(model=settings.openai_model, instructions="Extract operational identifiers, quantities, dates, PPAP/VDA references and any release conditions from this logistics document. Return concise plain text only.", input=[{"role": "user", "content": [{"type": "input_text", "text": f"Extract this scanned document named {filename}."}, {"type": "input_image", "image_url": f"data:image/png;base64,{encoded}"}]}])
-    return response.output_text
+    from app.services.llm_client import get_llm_client
+    llm_client = get_llm_client(settings)
+    if llm_client.active_provider == "deterministic" and not (settings.openai_api_key or settings.agentrouter_api_key):
+        return text
+    try:
+        preview_bytes = preview.read_bytes()
+        instructions = "Extract operational identifiers, quantities, dates, PPAP/VDA references and any release conditions from this logistics document. Return concise plain text only."
+        extracted = await llm_client.vision(preview_bytes, filename, instructions)
+        return extracted or text
+    except Exception:
+        return text
 
 
 async def inspect_and_index(store, settings: Settings, filename: str, raw: bytes) -> DocumentInspection:

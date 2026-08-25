@@ -32,8 +32,8 @@ class EventBus:
             return self._redis
         try:
             import redis.asyncio as redis
-            client = redis.from_url(self.redis_url, decode_responses=True)
-            await client.ping()
+            client = redis.from_url(self.redis_url, socket_connect_timeout=0.5, socket_timeout=0.5, decode_responses=True)
+            await asyncio.wait_for(client.ping(), timeout=0.5)
             self._redis = client
             return client
         except Exception:

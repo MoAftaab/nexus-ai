@@ -22,7 +22,7 @@ from app.services.document_parser import inspect_and_index
 from app.services.reasoner import answer_chat, stream_chat
 from app.services.walt_actions import resolve_walt_command
 from app.services.event_bus import EventBus
-from app.services.auth import can_access_site, principal_from_token, sign_in, sign_out
+from app.services.auth import _user_payload, can_access_site, principal_from_token, sign_in, sign_out
 from app.services.change_control import (
     _activate_step, _audit, build_change_preview, cancel_change_request, create_change_request, decide_approval,
     diff_snapshots, execute_approved_change, inbox as approval_inbox, list_requests,
@@ -35,8 +35,10 @@ from app.services.workflow_coordination import (
     confirm_workflow_action, delegate_stage, eligible_recipients, evaluate_sla,
     list_detail_requests, prepare_workflow_action, request_details, respond_to_details,
 )
-from app.db import ContainerModel, DispatchScheduleModel, InboundOrderModel, InventoryPositionModel, MasterSkuModel, OutboundOrderModel, SupplierModel, UserModel, WorkforceLogModel
+from app.db import ContainerModel, DispatchScheduleModel, InboundOrderModel, InventoryPositionModel, MasterSkuModel, OutboundOrderModel, SiteModel, SupplierModel, UserModel, WorkforceLogModel
 
+
+from app.services.llm_client import get_llm_client
 
 settings = get_settings()
 store = OperationsStore(settings)
@@ -46,7 +48,9 @@ event_bus = EventBus(settings.redis_url)
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    await event_bus.start()
+    llm_client = get_llm_client(settings)
+    probe_task = asyncio.create_task(llm_client.probe_and_configure_default())
+    bus_task = asyncio.create_task(event_bus.start())
     yield
     await event_bus.close()
 
@@ -67,14 +71,29 @@ app.add_middleware(
 
 
 @app.get("/api/health")
-async def health() -> dict[str, str]:
-    return {"status": "healthy", "time": datetime.now(timezone.utc).isoformat(), "mode": "openai" if settings.openai_api_key else "demo"}
+async def health() -> dict[str, object]:
+    llm_client = get_llm_client(settings)
+    return {
+        "status": "healthy",
+        "time": datetime.now(timezone.utc).isoformat(),
+        "provider": llm_client.active_provider,
+        "model": llm_client.active_model,
+        "mode": llm_client.active_provider,
+        "probe": llm_client.probe_status,
+    }
 
 
 def current_user(authorization: str | None) -> dict[str, object]:
     token = authorization.removeprefix("Bearer ").strip() if authorization else None
     user = principal_from_token(store.repository, token)
     if not user:
+        if settings.demo_mode:
+            with store.repository.session() as session:
+                user_record = session.scalar(select(UserModel).where(UserModel.role == "operator").order_by(UserModel.id))
+                sites = session.scalars(select(SiteModel).order_by(SiteModel.id)).all()
+                if user_record:
+                    return _user_payload(user_record, sites)
+            return {"user_id": "operator1", "email": "operator1@nexusai.demo", "display_name": "Operations Operator", "role": "operator", "site_scopes": ["*"], "permitted_sites": ["wolfsburg", "bratislava", "pune"]}
         raise HTTPException(status_code=401, detail="A valid Warehouse Control Tower AI session is required")
     return user
 

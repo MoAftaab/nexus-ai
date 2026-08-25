@@ -750,18 +750,34 @@
 }
 
 @media (max-width: 520px) {
-  .walt-assistant-shell { width: 126px; height: 116px; }
-  .walt-mascot-button { width: 126px; height: 116px; }
-  .walt-atlas-mascot { width: 98px; height: 106px; }
+  .walt-assistant-shell { width: 104px; height: 96px; }
+  .walt-mascot-button { width: 104px; height: 96px; }
+  .walt-atlas-mascot { width: 78px; height: 85px; }
   .walt-hover-identity { display: none; }
-  .walt-hello { right: 92px; top: 4px; }
-  .edge-left .walt-hello { right: auto; left: 92px; }
-  .walt-panel { border-radius: 16px; }
-  .walt-panel-header { grid-template-columns: 72px 1fr auto; min-height: 78px; padding-right: 9px; }
-  .walt-panel-identity strong { font-size: 15px; }
+  .walt-hello { right: 78px; top: 4px; }
+  .edge-left .walt-hello { right: auto; left: 78px; }
+  .walt-panel {
+    position: fixed !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    top: auto !important;
+    width: 100vw !important;
+    max-width: 100vw !important;
+    max-height: 85vh !important;
+    max-height: 85dvh !important;
+    border-radius: 20px 20px 0 0 !important;
+    border-left: none !important;
+    border-right: none !important;
+    border-bottom: none !important;
+    transform: none !important;
+    padding-bottom: max(16px, env(safe-area-inset-bottom, 16px)) !important;
+  }
+  .walt-panel-header { grid-template-columns: 60px 1fr auto; min-height: 70px; padding-right: 9px; }
+  .walt-panel-identity strong { font-size: 14px; }
   .walt-panel-controls { gap: 4px; }
-  .walt-panel-controls button { width: 29px; height: 29px; }
-  .walt-panel-controls .walt-new-chat { width: 29px; min-width: 29px; padding: 0; }
+  .walt-panel-controls button { width: 32px; height: 32px; }
+  .walt-panel-controls .walt-new-chat { width: 32px; min-width: 32px; padding: 0; }
   .walt-panel-controls .walt-new-chat span { display: none; }
   .walt-conversation { min-height: 96px; }
   .walt-agent-flow__specialists { grid-template-columns: repeat(3, minmax(0, 1fr)); }
