@@ -90,13 +90,8 @@ export function WaltPanel({
       {riskCount > 0 && <b>{riskCount} priority</b>}
     </div>
 
-    <div className="walt-context-cards" aria-label="Live operational context">
-      {contextCards.map((card) => <article key={card.id} data-tone={card.tone}>
-        <span>{card.label}</span><strong>{card.value}</strong>
-      </article>)}
-    </div>
 
-    {capabilities && <details className="walt-capability-guide" open={messages.length === 1}>
+    {capabilities && <details className="walt-capability-guide">
       <summary><span><Sparkles size={13} />What WALT can do for {capabilities.role_label}</span><ChevronDown size={13} /></summary>
       <div className="walt-capability-body">
         <div className="walt-capability-list">{capabilities.capabilities?.map((item) => <article key={item.id}><ShieldCheck size={13} /><div><strong>{item.label}</strong><p>{item.detail}</p></div></article>)}</div>

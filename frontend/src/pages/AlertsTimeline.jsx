@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { ChevronLeft, ChevronRight, Clock3, Filter, ShieldAlert, Sparkles } from 'lucide-react'
 import { currency, severityLabel } from '../utils'
 
-const PAGE_SIZE = 4
+const PAGE_SIZE = 5
 
 export function AlertsTimeline({ alerts, onSelectAnomaly }) {
   const [active, setActive] = useState('all')
@@ -66,16 +66,17 @@ export function AlertsTimeline({ alerts, onSelectAnomaly }) {
           </span>
         </div>
 
-        {/* List of 4 paginated cards */}
+        {/* List of 5 paginated cards */}
         <div className="alerts-list">
           {paginated.map((alert) => (
             <button
               className="alert-card"
               key={alert.id}
               onClick={() => onSelectAnomaly?.({ id: alert.id })}
+              title={`Inspect ${alert.title} · ${alert.detail}`}
             >
-              <div className={`alert-clock ${alert.severity}`}>
-                <Clock3 size={16} />
+              <div className={`alert-clock ${alert.severity}`} title={`Deadline in ${alert.when}`}>
+                <Clock3 size={14} />
                 <strong>{alert.when}</strong>
               </div>
 
@@ -84,14 +85,14 @@ export function AlertsTimeline({ alerts, onSelectAnomaly }) {
                   <span className={`severity-pill ${alert.severity}`}>{severityLabel(alert.severity)}</span>
                   <small>Owner: {alert.owner}</small>
                 </div>
-                <h3>{alert.title}</h3>
-                <p>{alert.detail}</p>
+                <h3 title={alert.title}>{alert.title}</h3>
+                <p title={alert.detail}>{alert.detail}</p>
               </div>
 
-              <div className="alert-impact">
+              <div className="alert-impact" title={`Preventable exposure: ${currency(alert.impact)}`}>
                 <span>Preventable exposure</span>
                 <strong>{currency(alert.impact)}</strong>
-                <ChevronRight size={18} />
+                <ChevronRight size={16} />
               </div>
             </button>
           ))}

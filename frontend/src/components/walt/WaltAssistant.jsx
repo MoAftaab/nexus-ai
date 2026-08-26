@@ -78,6 +78,17 @@ export function WaltAssistant({
   useEffect(() => { openRef.current = open }, [open])
   useEffect(() => { positionRef.current = position }, [position])
 
+  useEffect(() => {
+    if (open) {
+      document.body.classList.add('walt-chat-active')
+    } else {
+      document.body.classList.remove('walt-chat-active')
+    }
+    return () => {
+      document.body.classList.remove('walt-chat-active')
+    }
+  }, [open])
+
   const showTransient = useCallback((state, duration = 1600) => {
     window.clearTimeout(transientTimerRef.current)
     setRestingState(state)
@@ -252,13 +263,22 @@ export function WaltAssistant({
     { width: 580, height: 680 },
   )
 
-  return <div
-    ref={shellRef}
-    className={`walt-assistant-shell edge-${edge} popup-${popupPlacement.direction} ${open ? 'is-open' : ''} ${dragging ? 'is-dragging' : ''}`}
-    data-state={state}
-    style={{ left: `${position.x}px`, top: `${position.y}px` }}
-  >
-    {panelMounted && <WaltPanel
+  return (
+    <>
+      {panelMounted && (
+        <div
+          className={`walt-backdrop ${panelClosing ? 'is-closing' : ''}`}
+          onClick={closePanel}
+          aria-hidden="true"
+        />
+      )}
+      <div
+        ref={shellRef}
+        className={`walt-assistant-shell edge-${edge} popup-${popupPlacement.direction} ${open ? 'is-open' : ''} ${dragging ? 'is-dragging' : ''}`}
+        data-state={state}
+        style={{ left: `${position.x}px`, top: `${position.y}px` }}
+      >
+        {panelMounted && <WaltPanel
       capabilities={capabilities}
       closing={panelClosing}
       contextCards={contextCards}
@@ -306,4 +326,6 @@ export function WaltAssistant({
       <WaltMascot state={state} riskCount={riskCount} unread={chat.unread} />
     </button>
   </div>
+</>
+  )
 }

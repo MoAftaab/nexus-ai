@@ -1,0 +1,16 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "vedaai",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "C:/Users/MOHDAF~1/OneDrive/Pictures/DOCUME~1/VEDAAI~1",
+        "run",
+        "dev"
+      ],
+      "port": 3000
+    }
+  ]
+}

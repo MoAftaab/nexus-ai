@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowDownUp, ChevronLeft, ChevronRight, Filter, Search, SlidersHorizontal } from 'lucide-react'
+import { ArrowDownUp, ChevronLeft, ChevronRight, Filter, Search } from 'lucide-react'
 import { currency, severityLabel } from '../utils'
 
 // The table never scrolls: rows are sized to the space that exists and the
@@ -79,7 +79,6 @@ export function RiskIntelligence({ anomalies, onSelectAnomaly }) {
         <span>{filter === 'contained' ? 'Exposure removed' : 'Open exposure'}</span>
         <strong>{currency(totalExposure)}</strong>
       </div>
-      <button className="soft-button"><SlidersHorizontal size={16} />Filters</button>
     </section>
 
     <section className="risk-table card-surface">

@@ -1,4 +1,4 @@
-import { Activity, FileClock, FileSearch, GitPullRequest, KeyRound, LayoutDashboard, LogOut, PanelLeftClose, PanelLeftOpen, Radar, Scale, ShieldCheck, X } from 'lucide-react'
+import { Activity, FileClock, FileSearch, GitPullRequest, KeyRound, LayoutDashboard, PanelLeftClose, PanelLeftOpen, Radar, Scale, X } from 'lucide-react'
 import { VwLogo } from './VwLogo'
 
 const operationsNav = [
@@ -10,7 +10,7 @@ const operationsNav = [
   { id: 'changes', label: 'Change control', icon: GitPullRequest },
 ]
 
-export function Sidebar({ activePage, collapsed = false, onToggleCollapse, onNavigate, alertCount = 0, onClose, principal, onSignOut }) {
+export function Sidebar({ activePage, collapsed = false, onToggleCollapse, onNavigate, alertCount = 0, onClose, principal }) {
   return <aside className="sidebar">
     <button className="sidebar-close" onClick={onClose} aria-label="Close navigation"><X size={19} /></button>
     <div className="sidebar-brand-row">
@@ -62,24 +62,6 @@ export function Sidebar({ activePage, collapsed = false, onToggleCollapse, onNav
         </div>
       )}
       </nav>
-    </div>
-
-    <div className="sidebar-bottom">
-      <div className="system-pill">
-        <ShieldCheck size={15} />
-        <span>Governed AI · Multi-site secure</span>
-      </div>
-      <div className="operator">
-        <div className="avatar">{principal?.display_name?.split(' ').map((word) => word[0]).slice(0, 2).join('') || 'CT'}</div>
-        <div className="operator-details">
-          <strong>{principal?.display_name || 'Control Tower operator'}</strong>
-          <span>{principal?.role?.replaceAll('_', ' ') || 'Workspace user'}</span>
-        </div>
-        <button className="signout-btn" aria-label="Sign out" title="Sign out" onClick={onSignOut}>
-          <LogOut size={15} />
-          <span className="signout-btn-text">Sign out</span>
-        </button>
-      </div>
     </div>
   </aside>
 }

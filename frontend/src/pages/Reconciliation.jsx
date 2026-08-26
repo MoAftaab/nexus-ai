@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CheckCircle2, ChevronRight, DatabaseZap, Search, Sparkles } from 'lucide-react'
+import { CheckCircle2, DatabaseZap, Search, Sparkles } from 'lucide-react'
 
 export function Reconciliation({ data, onSelectAnomaly }) {
   const [selected, setSelected] = useState(data?.rows?.[0]?.id)
@@ -88,7 +88,6 @@ export function Reconciliation({ data, onSelectAnomaly }) {
                   <em className={row.risk}>
                     {row.variance === 0 ? 'Balanced' : `${row.variance > 0 ? '+' : ''}${row.variance}`}
                   </em>
-                  <ChevronRight size={14} />
                 </button>
               ))}
               {filteredRows.length === 0 && (
@@ -102,18 +101,58 @@ export function Reconciliation({ data, onSelectAnomaly }) {
             <div className="section-title">
               <div>
                 <span className="eyebrow"><CheckCircle2 size={12} /> Transaction archaeology</span>
-                <h3>Divergence timeline</h3>
+                <h3>Divergence timeline {active ? `· ${active.sku}` : ''}</h3>
               </div>
             </div>
             <div className="timeline-row">
-              {data?.timeline?.map((event) => (
-                <div className={`timeline-event ${event.state}`} key={event.time}>
-                  <i />
-                  <span>{event.time}</span>
-                  <strong>{event.event}</strong>
-                  <small>{event.system}</small>
-                </div>
-              ))}
+              {active ? (() => {
+                const events = []
+                const hasDrift = active.variance !== 0
+                // WMS event
+                events.push({
+                  time: 'WMS',
+                  event: hasDrift && active.wms !== active.physical
+                    ? `WMS reports ${active.wms} units — ${active.wms > active.physical ? '+' : ''}${active.wms - active.physical} vs physical`
+                    : `WMS reports ${active.wms} units — matches physical`,
+                  system: 'WMS',
+                  state: active.wms !== active.physical ? 'critical' : 'good',
+                })
+                // ERP event
+                events.push({
+                  time: 'ERP',
+                  event: hasDrift && active.erp !== active.physical
+                    ? `ERP balance shows ${active.erp} units — ${active.erp > active.physical ? '+' : ''}${active.erp - active.physical} divergence`
+                    : `ERP balance ${active.erp} units — synchronized`,
+                  system: 'ERP',
+                  state: active.erp !== active.physical ? 'critical' : 'good',
+                })
+                // TMS event
+                events.push({
+                  time: 'TMS',
+                  event: hasDrift && active.tms !== active.physical
+                    ? `TMS inherited ${active.tms} units — ${active.tms > active.physical ? '+' : ''}${active.tms - active.physical} gap`
+                    : `TMS shows ${active.tms} units — aligned`,
+                  system: 'TMS',
+                  state: active.tms !== active.physical ? 'watch' : 'good',
+                })
+                // Physical count event
+                events.push({
+                  time: 'Count',
+                  event: `Physical count verified at ${active.physical} units`,
+                  system: 'Physical',
+                  state: 'good',
+                })
+                return events.map((event) => (
+                  <div className={`timeline-event ${event.state}`} key={event.time}>
+                    <i />
+                    <span>{event.time}</span>
+                    <strong>{event.event}</strong>
+                    <small>{event.system}</small>
+                  </div>
+                ))
+              })() : (
+                <p className="recon-empty">Select a row to see its divergence timeline.</p>
+              )}
             </div>
           </section>
         </div>

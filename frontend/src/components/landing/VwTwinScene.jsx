@@ -578,9 +578,7 @@ export function VwTwinScene({ theme = 'light' }) {
   }, [theme])
 
   return (
-    <div ref={hostRef} className="landing-twin-scene" aria-hidden="true">
-      <span className="landing-twin-interactive-badge">{interactiveHint}</span>
-    </div>
+    <div ref={hostRef} className="landing-twin-scene" aria-hidden="true" />
   )
 }
 

@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowRight, LogOut, Moon, ShieldCheck, Sparkles, Sun } from 'lucide-react'
+import { ArrowRight, LogOut, ShieldCheck, Sparkles } from 'lucide-react'
 import { api } from '../api'
 import { currency } from '../utils'
 import { VwLogo } from '../components/VwLogo'
@@ -205,7 +205,7 @@ function CascadeField() {
   return <canvas ref={canvasRef} className="landing-canvas" aria-hidden="true" />
 }
 
-export function Landing({ onEnter, onSignedIn, onSignOut, principal, theme = 'light', onToggleTheme }) {
+export function Landing({ onEnter, onSignedIn, onSignOut, principal, theme = 'dark' }) {
   const [exposure, setExposure] = useState(null)
   const [email, setEmail] = useState(ACCOUNTS[0][0])
   const [password, setPassword] = useState('nexusai2026')
@@ -236,37 +236,12 @@ export function Landing({ onEnter, onSignedIn, onSignOut, principal, theme = 'li
   }, [])
 
   return (
-    <div className="landing">
+    <div className="landing" data-theme="dark">
       <nav className="landing-nav">
         <span className="brand landing-brand">
-          <VwLogo size={32} className="landing-vw-logo" />
+          <VwLogo size={36} className="landing-vw-logo" />
           <span><strong>Warehouse Control Tower</strong><em>AI</em></span>
         </span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-          <button
-            className={`theme-toggle-btn ${theme === 'dark' ? 'is-dark' : ''}`}
-            onClick={onToggleTheme}
-            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-            aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-          >
-            {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
-            <span>{theme === 'dark' ? 'Light' : 'Dark'}</span>
-          </button>
-          {principal && onSignOut && (
-            <button
-              className="soft-button landing-signout-nav"
-              onClick={onSignOut}
-              title="Sign out of current account"
-            >
-              <LogOut size={13} />
-              <span>Logout</span>
-            </button>
-          )}
-          <button className="soft-button" onClick={onEnter}>
-            <span>{principal ? 'Enter dashboard' : 'Sign in'}</span>
-            <ArrowRight size={14} />
-          </button>
-        </div>
       </nav>
 
       <header className="landing-hero">
@@ -289,18 +264,20 @@ export function Landing({ onEnter, onSignedIn, onSignOut, principal, theme = 'li
                     </div>
                     <b>{principal.email?.split('@')[0]}</b>
                   </div>
-                  <div className="landing-cta" style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    <button className="primary-button landing-primary" style={{ width: '100%' }} onClick={onEnter}>
-                      Enter the command center <ArrowRight size={16} />
+                  <div className="landing-session-actions">
+                    <button className="primary-button landing-primary landing-enter-btn" onClick={onEnter}>
+                      <span>Enter the command center</span>
+                      <ArrowRight size={16} />
                     </button>
                     {onSignOut && (
                       <button
-                        className="soft-button"
-                        style={{ width: '100%', justifyContent: 'center', opacity: 0.85, fontSize: '12px' }}
+                        className="landing-session-logout-btn"
                         onClick={onSignOut}
                         type="button"
+                        title="Sign out of current account"
                       >
-                        Switch account / Sign in as another role
+                        <LogOut size={13} />
+                        <span>Sign out / Switch account</span>
                       </button>
                     )}
                   </div>
@@ -363,22 +340,6 @@ export function Landing({ onEnter, onSignedIn, onSignOut, principal, theme = 'li
             <Suspense fallback={<div className="landing-twin-loading" aria-hidden="true" />}>
               <VwTwinScene theme={theme} />
             </Suspense>
-            <div className="landing-twin-hud-header">
-              <div className="landing-twin-brand-pill">
-                <VwLogo size={22} animated={false} className="landing-twin-hud-logo" />
-                <div>
-                  <strong>VW OPERATIONAL TWIN</strong>
-                  <span>WOLFSBURG DC · DECISION TELEMETRY</span>
-                </div>
-              </div>
-              <div className="landing-twin-hud-status">
-                <i className="pulse-dot" />
-                <span>LIVE MESH SIGNAL</span>
-              </div>
-            </div>
-            <div className="landing-twin-readout landing-twin-readout-left"><strong>72,900</strong><span>records watched</span></div>
-            <div className="landing-twin-readout landing-twin-readout-right"><strong>38</strong><span>live findings</span></div>
-            <div className="landing-twin-route"><span>detect</span><i /><span>trace</span><i /><span>approve</span></div>
           </Reveal>
         </div>
       </header>
