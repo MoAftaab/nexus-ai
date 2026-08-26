@@ -2337,7 +2337,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(320px, 0.85fr) minmax(460px, 1.4fr);
+  /* min track = 0 (not 320/460) so the two columns shrink to the available
+     content width instead of overflowing it on narrow desktops/tablets. */
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.4fr);
   gap: 14px;
   height: 100%;
   align-items: stretch;
@@ -7402,12 +7404,27 @@ button.decision-rail-step:hover { border-color: var(--brand-vivid, #008C82); bac
     overflow: visible;
     padding: 18px 16px calc(36px + var(--safe-bottom));
   }
-  .reconciliation-page .recon-viewport-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; }
-  .reconciliation-page .recon-left-col { grid-template-rows: none; }
+  .reconciliation-page .recon-viewport-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; height: auto; }
+  .reconciliation-page .recon-left-col { grid-template-rows: none; height: auto; }
   .reconciliation-page .recon-bottom-split { grid-template-columns: minmax(0, 1fr); }
-  .reconciliation-page .inventory-row { flex: 0 0 auto; max-height: none; min-height: 46px; padding: 8px 14px; }
+  .reconciliation-page .inventory-rows-scroll { overflow: visible; }
+  .reconciliation-page .inventory-row { flex: 0 0 auto; max-height: none; min-height: 46px; padding: 8px 14px; overflow: visible; }
+  /* The fixed 165px band clips the stacked timeline (4 × ~62px) and SAP matrix
+     once they go single-column — let both grow to their content on phones. */
+  .reconciliation-page .audit-timeline,
+  .reconciliation-page .sap-workbench { height: auto; min-height: 0; max-height: none; }
   .reconcile-toolbar-right { flex-wrap: wrap; }
   .reconciliation-page .reconcile-detail { height: auto; }
+  /* Change control shares the same fixed-height one-screen shell — release it
+     on phones so the stacked list + detail flow instead of clipping. */
+  .page.change-control-page {
+    height: auto;
+    max-height: none;
+    overflow: visible;
+    padding: 16px 16px calc(36px + var(--safe-bottom));
+  }
+  .change-control-page .change-grid { height: auto; }
+  .change-control-page .change-detail { height: auto; min-height: 0; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -7472,3 +7489,78 @@ button.decision-rail-step:hover { border-color: var(--brand-vivid, #008C82); bac
   .page.alerts-page { flex: 0 1 auto; height: auto; overflow: visible; }
   .alerts-list { overflow: visible; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   RESPONSIVE HARDENING — fluid from 320px → large desktop, at any height
+   These rules are appended last so they win on source order over the
+   equal-specificity base rules. The goal is that no fixed desktop
+   dimension ever crushes or clips content on a smaller/shorter viewport;
+   components reflow and, where genuinely necessary, scroll — instead of
+   being hardcoded to one screen size.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Topbar: the action cluster (scan · theme · alerts · account) must never
+   be clipped off the right edge. Let the page title flex-shrink and ellipsize
+   so the actions always keep their space; below ~420px the title was pushing
+   the account button off-screen. Desktop is unaffected — the title only
+   truncates when the row would otherwise overflow. */
+.topbar { min-width: 0; }
+.page-ident { min-width: 0; flex: 1 1 auto; overflow: hidden; }
+.page-ident h1 { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.page-ident p { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.topbar-actions { flex-shrink: 0; min-width: 0; }
+
+/* ── Reconciliation: below the width where the two 50/50 columns get cramped
+   (right column bottoms out at its 304px min), stack to a single column. */
+@media (max-width: 1024px) {
+  .reconciliation-page .recon-viewport-grid { grid-template-columns: minmax(0, 1fr); }
+  /* Change control: the list + detail two-column grid needs ~780px of content
+     width; below 1024 the sidebar leaves less than that, so stack it. */
+  .change-control-page .change-grid { grid-template-columns: minmax(0, 1fr); height: auto; }
+}
+/* Reconciliation flow mode — the page is designed to fit one screen via fixed
+   card heights (165px), fixed row heights and overflow:hidden. That only fits
+   on a tall, wide desktop; on a narrow (≤1024) OR short (≤899) viewport it
+   crushes the 8 balance rows below their text and clips the timeline. Here we
+   release those fixed sizes so every card shows at its natural height. On
+   desktop-width screens the page scrolls INTERNALLY (the sidebar stays full
+   height and the window keeps no scrollbar); phones (≤900) already fall back to
+   a normally-scrolling document above, so this targets ≥901px only. */
+@media (min-width: 901px) and (max-width: 1024px), (min-width: 901px) and (max-height: 899px) {
+  .page.reconciliation-page { overflow-y: auto; overflow-x: hidden; }
+  .reconciliation-page .recon-viewport-grid { grid-template-rows: none; height: auto; flex: 0 0 auto; }
+  .reconciliation-page .recon-left-col { grid-template-rows: none; height: auto; }
+  .reconciliation-page .inventory-rows-scroll { overflow: visible; }
+  .reconciliation-page .inventory-row { flex: 0 0 auto; min-height: 44px; max-height: none; padding: 7px 14px; overflow: visible; }
+  .reconciliation-page .audit-timeline,
+  .reconciliation-page .sap-workbench { height: auto; min-height: 0; max-height: none; }
+  .reconciliation-page .reconcile-detail { height: auto; }
+  /* Change control uses the same one-screen shell; once its grid stacks (≤1024)
+     or the viewport is short, let the page scroll internally instead of clipping
+     the stacked list + detail panels. */
+  .page.change-control-page { overflow-y: auto; overflow-x: hidden; }
+  .change-control-page .change-grid { height: auto; flex: 0 0 auto; }
+  .change-control-page .change-detail { height: auto; min-height: 0; }
+}
+
+/* ── Alerts pagination: on narrow screens wrap the pager (Prev · 1 2 3 · Next)
+   instead of clipping the page-number buttons off the right edge. */
+@media (max-width: 560px) {
+  .alerts-pagination-toolbar { flex-direction: column; gap: 8px; align-items: stretch; }
+  .alerts-pagination-toolbar .pagination-controls { flex-wrap: wrap; justify-content: center; }
+  .alerts-pagination-toolbar .page-numbers { flex-wrap: wrap; justify-content: center; }
+}
+
+/* ── Toolbars with selects/filters: allow them to shrink and wrap rather than
+   pushing a fixed-width control past the viewport (Change control, Risk). */
+.change-toolbar-actions { flex-wrap: wrap; min-width: 0; }
+.change-toolbar-actions select,
+.contained-filter { min-width: 0; max-width: 100%; }
+
+/* ── Long unbreakable strings (IDs, SKUs, agent names) must wrap rather than
+   force horizontal overflow inside dense list rows. min-width:0 lets the flex/
+   grid children shrink below their min-content width (which defaults to
+   min-width:auto and otherwise pins the track to the longest word). */
+.risk-row, .risk-row *,
+.queue-item, .queue-item *,
+.doc-field-item, .doc-field-item * { overflow-wrap: anywhere; min-width: 0; }
