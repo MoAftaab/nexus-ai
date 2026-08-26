@@ -1,12 +1,12 @@
 import { useRef, useState } from 'react'
-import { CheckCircle2, FileCheck2, FileText, FileWarning, FolderUp, Sparkles, UploadCloud } from 'lucide-react'
+import { CheckCircle2, FileCheck2, FileText, FileWarning, FolderUp, Sparkles, Trash2, UploadCloud, X } from 'lucide-react'
 
-export function Documents({ onInspect, documentData }) {
+export function Documents({ onInspect, onClearDocuments, onDeleteDocument, documentData }) {
   const inputRef = useRef(null)
   const [result, setResult] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const ingested = (documentData?.items || []).filter((item) => item.status !== 'source').slice(0, 3)
+  const ingested = (documentData?.items || []).filter((item) => item.status !== 'source').slice(0, 6)
 
   const inspect = async (file) => {
     if (!file) return
@@ -18,6 +18,25 @@ export function Documents({ onInspect, documentData }) {
       setError(cause.message)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleClearKnowledgeBase = async (e) => {
+    e?.preventDefault?.()
+    e?.stopPropagation?.()
+    setResult(null)
+    if (onClearDocuments) {
+      await onClearDocuments()
+    }
+  }
+
+  const handleDeleteItem = async (e, id) => {
+    e.stopPropagation()
+    if (onDeleteDocument) {
+      await onDeleteDocument(id)
+      if (result?.document_id === id) {
+        setResult(null)
+      }
     }
   }
 
@@ -52,6 +71,7 @@ export function Documents({ onInspect, documentData }) {
 
             <button
               className="dropzone"
+              type="button"
               onClick={() => inputRef.current?.click()}
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => {
@@ -127,14 +147,27 @@ export function Documents({ onInspect, documentData }) {
                 <span className="eyebrow"><Sparkles size={12} /> Inspection result</span>
                 <h3>{result?.filename || 'Awaiting an operational document'}</h3>
               </div>
-              {result ? (
-                <span className={`inspection-status ${result.status}`}>
-                  {result.status === 'clean' ? <CheckCircle2 size={13} /> : <FileWarning size={13} />}
-                  {result.status}
-                </span>
-              ) : (
-                <span className="inspection-status idle">Ready to inspect</span>
-              )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {result && (
+                  <button
+                    className="doc-header-action-btn"
+                    type="button"
+                    onClick={() => setResult(null)}
+                    title="Close inspection"
+                    aria-label="Close inspection"
+                  >
+                    <X size={13} />
+                  </button>
+                )}
+                {result ? (
+                  <span className={`inspection-status ${result.status}`}>
+                    {result.status === 'clean' ? <CheckCircle2 size={13} /> : <FileWarning size={13} />}
+                    {result.status}
+                  </span>
+                ) : (
+                  <span className="inspection-status idle">Ready to inspect</span>
+                )}
+              </div>
             </div>
 
             {error && <div className="upload-error">{error}</div>}
@@ -191,17 +224,27 @@ export function Documents({ onInspect, documentData }) {
                   <span className="eyebrow"><FileCheck2 size={12} /> Knowledge base</span>
                   <h3>Recently ingested evidence</h3>
                 </div>
-                <span className="history-badge">{documentData?.summary?.ingested_records || ingested.length} indexed</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <button
+                    className="doc-header-action-btn delete-action"
+                    type="button"
+                    onClick={handleClearKnowledgeBase}
+                    title="Clear all ingested evidence"
+                    aria-label="Clear all ingested evidence"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                  <span className="history-badge">{documentData?.summary?.ingested_records || ingested.length} indexed</span>
+                </div>
               </div>
               <div className="document-history-list">
                 {ingested.map((record) => (
-                  <button key={record.id} onClick={() => showRecord(record)}>
+                  <button key={record.id} type="button" onClick={() => showRecord(record)}>
                     <FileText size={14} />
                     <div className="doc-hist-info">
                       <strong>{record.filename}</strong>
                       <small>{record.type} · {record.created_at ? new Date(record.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recently'}</small>
                     </div>
-                    <span className={`inspection-status ${record.status}`}>{record.status}</span>
                   </button>
                 ))}
               </div>

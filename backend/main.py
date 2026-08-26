@@ -791,12 +791,27 @@ async def documents() -> dict[str, object]:
     return store.documents()
 
 
+@app.delete("/api/documents")
+@app.post("/api/documents/clear")
+async def clear_documents() -> dict[str, object]:
+    store.clear_documents()
+    return {"status": "cleared", "summary": store.documents()["summary"]}
+
+
 @app.get("/api/documents/{document_id}")
 async def document(document_id: str) -> dict[str, object]:
     result = store.document(document_id)
     if not result:
         raise HTTPException(status_code=404, detail="Document not found")
     return result
+
+
+@app.delete("/api/documents/{document_id}")
+async def delete_document(document_id: str) -> dict[str, object]:
+    success = store.delete_document(document_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return {"status": "deleted", "document_id": document_id}
 
 
 @app.get("/api/documents/{document_id}/preview")

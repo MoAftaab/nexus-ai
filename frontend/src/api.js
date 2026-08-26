@@ -122,4 +122,6 @@ export const api = {
   },
   applyAction: (anomalyId, actionId) => request(`/api/anomalies/${anomalyId}/actions/${actionId}/apply`, { method: 'POST' }),
   inspectDocument: (file) => { const form = new FormData(); form.append('file', file); return request('/api/documents/inspect', { method: 'POST', body: form }) },
+  clearDocuments: () => request('/api/documents/clear', { method: 'POST' }).catch(() => request('/api/documents', { method: 'DELETE' })),
+  deleteDocument: (id) => request(`/api/documents/${id}`, { method: 'DELETE' }),
 }

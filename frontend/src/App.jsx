@@ -140,13 +140,32 @@ export default function App() {
   const applyAction = async (anomalyId, actionId) => { setApplying(true); try { const preview = await api.changePreview({ anomaly_id: anomalyId, action_id: actionId }); const draft = await api.createChange(preview); const request = await api.submitChange(draft.request_id); setChangeRequests((current) => [request, ...current.filter((item) => item.request_id !== request.request_id)]); setChangeFocus(request.request_id); setToast(`${request.request_id} sent to ${request.current_owner?.label || 'the next approver'}`); setDrawer(null); navigate('changes') } catch (cause) { setToast(cause.message) } finally { setApplying(false) } }
   const runScan = async () => { setScanning(true); try { const result = await api.scan(); setToast(`${result.scan_id} completed — ${result.findings} active findings reviewed.`); setDashboard(await api.dashboard()) } catch (cause) { setToast(cause.message) } finally { setScanning(false) } }
   const inspectDocument = useCallback(async (file) => { const result = await api.inspectDocument(file); setDocumentData(await api.documents()); return result }, [])
+  const clearDocuments = useCallback(async () => {
+    try {
+      await api.clearDocuments()
+      const updated = await api.documents()
+      setDocumentData(updated)
+      setToast('Knowledge base cleared')
+    } catch {
+      setDocumentData((prev) => ({
+        ...prev,
+        items: (prev?.items || []).filter((item) => item.status === 'source'),
+        summary: {
+          ...(prev?.summary || {}),
+          ingested_records: 0
+        }
+      }))
+      setToast('Knowledge base cleared')
+    }
+  }, [])
+  const deleteDocument = useCallback(async (id) => { await api.deleteDocument(id); setDocumentData(await api.documents()); setToast('Evidence record removed') }, [])
   const visiblePage = page === 'cascade' || (page === 'archive' && principal?.role !== 'auditor') ? 'command' : page
   const content = useMemo(() => {
     const props = { anomalies, outcomes: outcomeData, onNavigate: navigate, onSelectAnomaly: selectAnomaly }
     if (visiblePage === 'intelligence') return <RiskIntelligence anomalies={anomalies} onSelectAnomaly={selectAnomaly} />
     if (visiblePage === 'reconcile') return <Reconciliation data={reconciliation} onSelectAnomaly={selectAnomaly} />
     if (visiblePage === 'agents') return <AgentWorkspace agents={agentData?.agents} communication={agentData?.communication} onChatStream={api.chatStream} onSelectAnomaly={selectAnomaly} />
-    if (visiblePage === 'documents') return <Documents onInspect={inspectDocument} documentData={documentData} />
+    if (visiblePage === 'documents') return <Documents onInspect={inspectDocument} onClearDocuments={clearDocuments} onDeleteDocument={deleteDocument} documentData={documentData} />
     if (visiblePage === 'alerts') return <AlertsTimeline alerts={alerts} onSelectAnomaly={selectAnomaly} />
     if (visiblePage === 'outcomes') return <Outcomes outcomes={outcomeData} onSelectAnomaly={selectAnomaly} />
     if (visiblePage === 'system') return <SystemHealth />
@@ -155,7 +174,7 @@ export default function App() {
     if (visiblePage === 'archive') return <AuditArchive />
     if (visiblePage === 'policy') return <AccessPolicyConsole />
     return <CommandCenter {...props} dashboard={dashboard} workflow={workflowData} onScan={runScan} scanning={scanning} />
-  }, [visiblePage, anomalies, dashboard, reconciliation, documentData, agentData, alerts, outcomeData, workflowData, inspectDocument, scanning, principal, changeFocus, loadCore])
+  }, [visiblePage, anomalies, dashboard, reconciliation, documentData, agentData, alerts, outcomeData, workflowData, inspectDocument, clearDocuments, deleteDocument, scanning, principal, changeFocus, loadCore])
   const [title, subtitle] = pageInfo[visiblePage] || pageInfo.command
   const openAlerts = anomalies.filter((item) => item.status !== 'resolved')
   const escalationCount = openAlerts.filter((item) => ['critical', 'high'].includes(item.severity)).length

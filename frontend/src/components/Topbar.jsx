@@ -150,7 +150,20 @@ export function Topbar({
               placeholder="Search anomalies, parts…"
             />
             {query ? (
-              <button className="search-clear" onClick={() => { setQuery(''); setOpen(false); inputRef.current?.focus() }} aria-label="Clear search"><X size={12} /></button>
+              <button
+                type="button"
+                className="search-clear"
+                onClick={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  setQuery('')
+                  setOpen(false)
+                  inputRef.current?.focus()
+                }}
+                aria-label="Clear search"
+              >
+                <X size={12} />
+              </button>
             ) : (
               <kbd>⌘ K</kbd>
             )}

@@ -1165,10 +1165,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 
 .document-history-list button {
   display: grid;
-  grid-template-columns: 16px minmax(0, 1fr) auto;
+  grid-template-columns: 16px minmax(0, 1fr);
   align-items: center;
-  gap: 6px;
-  padding: 6px 8px;
+  gap: 8px;
+  padding: 6px 10px;
   border: 1px solid var(--border, rgba(0,39,51,.1));
   border-radius: 6px;
   background: var(--surface, #F8FAFC);
@@ -1202,6 +1202,52 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   margin-top: 1px;
   color: var(--text-muted, #5A6E78);
   font-size: 7.5px;
+}
+
+.doc-header-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--border, rgba(0, 39, 51, 0.12));
+  border-radius: 6px;
+  background: var(--surface, #F8FAFC);
+  color: var(--text-muted, #5A6E78);
+  cursor: pointer;
+  transition: color .15s ease, background .15s ease, border-color .15s ease, transform .15s ease;
+}
+
+.doc-header-action-btn:hover {
+  color: var(--text-1, #002733);
+  border-color: var(--border-strong, rgba(0, 39, 51, 0.25));
+  background: color-mix(in srgb, var(--brand-vivid, #008C82) 10%, var(--surface, #F8FAFC));
+  transform: translateY(-1px);
+}
+
+.doc-header-action-btn.delete-action:hover {
+  color: #DA0C1F;
+  border-color: rgba(218, 12, 31, 0.35);
+  background: color-mix(in srgb, #DA0C1F 10%, var(--surface, #F8FAFC));
+}
+
+[data-theme="dark"] .doc-header-action-btn {
+  border-color: var(--border);
+  background: var(--dsb-shallow);
+  color: var(--text-muted);
+}
+
+[data-theme="dark"] .doc-header-action-btn:hover {
+  border-color: var(--brand-vivid, #008C82);
+  color: #FFFFFF;
+  background: rgba(0, 140, 130, 0.18);
+}
+
+[data-theme="dark"] .doc-header-action-btn.delete-action:hover {
+  border-color: rgba(255, 107, 122, 0.4);
+  color: #FF6B7A;
+  background: rgba(218, 12, 31, 0.2);
 }
 
 .inspection-status { display: inline-flex; align-items: center; gap: 4px; padding: 3px 6px; border-radius: 5px; font: 800 8px 'DM Mono', monospace; letter-spacing: .04em; text-transform: uppercase; }
@@ -3845,8 +3891,15 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 [data-theme="dark"] .document-history-list button {
   background: var(--dsb-shallow);
   border-color: var(--border);
+  color: var(--text-1);
 }
-[data-theme="dark"] .document-history-list button svg { color: var(--vg); }
+[data-theme="dark"] .document-history-list button:hover {
+  background: rgba(0, 140, 130, 0.15);
+  border-color: rgba(0, 140, 130, 0.4);
+}
+[data-theme="dark"] .document-history-list button svg {
+  color: var(--vg);
+}
 [data-theme="dark"] .doc-hist-info strong { color: var(--text-1); }
 [data-theme="dark"] .doc-hist-info small { color: var(--text-3); }
 [data-theme="dark"] .doc-field-item span { color: var(--text-3); }

@@ -855,6 +855,19 @@ class OperationsStore:
         records = self.repository.documents()
         return {"summary": {"source_documents": len(self._dataset.documents), "release_controls_needing_evidence": len(held), "ingested_records": len([item for item in records if item["status"] != "source"])}, "items": records}
 
+    def clear_documents(self) -> None:
+        self.repository.delete_documents()
+        self.repository.add_audit(str(uuid.uuid4()), "documents_cleared", "Document agent", {"cleared": "all_ingested"})
+
+    def delete_document(self, document_id: str) -> bool:
+        doc = self.repository.document(document_id)
+        if not doc:
+            return False
+        result = self.repository.delete_document(document_id)
+        if result:
+            self.repository.add_audit(str(uuid.uuid4()), "document_deleted", "Document agent", {"document_id": document_id, "filename": doc.get("filename")})
+        return result
+
     def record_document(self, document_id: str, inspection: DocumentInspection, storage_path: str, markdown_path: str) -> None:
         inspection.document_id = document_id
         inspection.preview_url = f"/api/documents/{document_id}/preview"

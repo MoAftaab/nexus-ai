@@ -447,6 +447,15 @@ class Repository:
                 return None
             return {"id": row.document_id, "filename": row.filename, "type": row.document_type, "status": row.status, "created_at": row.created_at.isoformat(), "storage_path": row.storage_path, "markdown_path": row.markdown_path, "fields": row.extracted_data, "mismatches": row.cross_check_results}
 
+    def delete_documents(self) -> None:
+        with self.session() as session:
+            session.execute(delete(DocumentModel).where(DocumentModel.status != "source"))
+
+    def delete_document(self, document_id: str) -> bool:
+        with self.session() as session:
+            result = session.execute(delete(DocumentModel).where(DocumentModel.document_id == document_id))
+            return bool(result.rowcount)
+
     def browse(self, model, page: int = 1, page_size: int = 50) -> dict[str, Any]:
         page = max(1, page); page_size = min(max(1, page_size), 200)
         with self.session() as session:
