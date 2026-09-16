@@ -50,10 +50,9 @@ event_bus = EventBus(settings.redis_url)
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     if not os.environ.get("PYTEST_CURRENT_TEST"):
-        default_hackathon = Path(r"C:\Users\Mohd Aftaab\Downloads\Telegram Desktop\Warehouse_AI_Hackathon_Synthetic_Dataset_FINAL 2.xlsx")
-        if default_hackathon.exists() and not store._hackathon_loaded:
+        if not store._hackathon_loaded:
             try:
-                store.load_hackathon(default_hackathon)
+                store.load_hackathon()
             except Exception:
                 pass
     llm_client = get_llm_client(settings)

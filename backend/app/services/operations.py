@@ -1023,11 +1023,27 @@ class OperationsStore:
             return {"type": "replenish", "entity": sku["id"], "story": f"Line consumption just drained {sku['id']} to {drained} EA — reorder point is {sku['reorder_point']} and no PO is open."}
         return None
 
+    @staticmethod
+    def _resolve_hackathon_path(path: Path | str | None = None) -> Path:
+        if path:
+            p = Path(path)
+            if p.exists():
+                return p
+        base_dir = Path(__file__).resolve().parents[2]
+        candidates = [
+            base_dir / "datasets" / "Warehouse_AI_Hackathon_Synthetic_Dataset_FINAL 2.xlsx",
+            base_dir / "Warehouse_AI_Hackathon_Synthetic_Dataset_FINAL 2.xlsx",
+            Path("backend/datasets/Warehouse_AI_Hackathon_Synthetic_Dataset_FINAL 2.xlsx"),
+            Path("datasets/Warehouse_AI_Hackathon_Synthetic_Dataset_FINAL 2.xlsx"),
+            Path(r"C:\Users\Mohd Aftaab\Downloads\Telegram Desktop\Warehouse_AI_Hackathon_Synthetic_Dataset_FINAL 2.xlsx"),
+        ]
+        for c in candidates:
+            if c.exists():
+                return c
+        raise FileNotFoundError("Hackathon dataset file not found in repo datasets/ or system paths.")
+
     def load_hackathon(self, path: Path | str | None = None) -> dict[str, object]:
-        default_path = Path(r"C:\Users\Mohd Aftaab\Downloads\Telegram Desktop\Warehouse_AI_Hackathon_Synthetic_Dataset_FINAL 2.xlsx")
-        target_path = Path(path) if path else default_path
-        if not target_path.exists():
-            raise FileNotFoundError(f"Hackathon dataset file not found: {target_path}")
+        target_path = self._resolve_hackathon_path(path)
 
         wb_data = load_hackathon_workbook(target_path)
         findings_by_cat = run_all_detectors(wb_data)
