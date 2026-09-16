@@ -36,7 +36,7 @@ from app.services.llm_client import get_llm_client
 async def stream_cascade_explanation(anomaly, graph_payload: dict, store: OperationsStore, settings: Settings):
     """SSE narration of one cascade graph; uses LLM (OpenAI / AgentRouter Claude) with deterministic fallback."""
     llm_client = get_llm_client(settings)
-    if llm_client.active_provider == "deterministic" and not (settings.openai_api_key or settings.agentrouter_api_key):
+    if llm_client.active_provider == "deterministic":
         edges = graph_payload.get("edges", [])
         chain = " → ".join(f"{edge['source'].split('-')[-1]} ({edge['probability']}%)" for edge in edges)
         if edges:

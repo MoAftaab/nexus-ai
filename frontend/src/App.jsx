@@ -50,6 +50,7 @@ export default function App() {
   const [dashboard, setDashboard] = useState(null); const [anomalies, setAnomalies] = useState([])
   const [agentData, setAgentData] = useState(null); const [reconciliation, setReconciliation] = useState(null); const [documentData, setDocumentData] = useState(null); const [alerts, setAlerts] = useState([]); const [outcomeData, setOutcomeData] = useState(null)
   const [loading, setLoading] = useState(true); const [error, setError] = useState(''); const [drawer, setDrawer] = useState(null); const [applying, setApplying] = useState(false); const [scanning, setScanning] = useState(false); const [toast, setToast] = useState(''); const [sidebarOpen, setSidebarOpen] = useState(false); const [sidebarCollapsed, setSidebarCollapsed] = useState(() => { try { return window.localStorage.getItem('nexusai.sidebarCollapsed') === 'true' } catch { return false } }); const [pulse, setPulse] = useState(null); const [tourOpen, setTourOpen] = useState(false); const [bellOpen, setBellOpen] = useState(false); const [notificationOpen, setNotificationOpen] = useState(false); const [workflowData, setWorkflowData] = useState(null); const [changeRequests, setChangeRequests] = useState([]); const [notifications, setNotifications] = useState([]); const [changeFocus, setChangeFocus] = useState(null)
+  const [loadingHackathon, setLoadingHackathon] = useState(false)
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
@@ -71,6 +72,19 @@ export default function App() {
       setDashboard(nextDashboard); setAnomalies(nextAnomalies.items); setAgentData(nextAgents); setReconciliation(nextReconciliation); setDocumentData(nextDocuments); setAlerts(nextAlerts.items); setOutcomeData(nextOutcomes); setWorkflowData(nextWorkflow); setChangeRequests(nextChanges.items || []); setNotifications(nextNotifications.items || [])
     } catch (cause) { setError(`Warehouse Control Tower AI could not reach its operations API. ${cause.message}`) } finally { setLoading(false) }
   }, [principal])
+
+  const handleLoadHackathon = useCallback(async () => {
+    setLoadingHackathon(true)
+    try {
+      const stats = await api.loadHackathon()
+      await loadCore()
+      setToast(`Loaded ${stats.anomalies_count} Hackathon anomalies across 6 SAP sheets`)
+    } catch (err) {
+      setToast(`Failed to load Hackathon data: ${err.message}`)
+    } finally {
+      setLoadingHackathon(false)
+    }
+  }, [loadCore])
   const refreshFromEvent = useCallback(async (message) => {
     if (!['action_applied', 'scan_complete', 'document_ingested', 'approval_decided', 'change_applied', 'change_verified', 'approval_stage_activated', 'change_submitted', 'change_rejected', 'change_returned', 'change_rollback', 'change_cancelled', 'reminder_confirmed', 'escalation_confirmed'].includes(message.type)) return
     try {
@@ -211,7 +225,7 @@ export default function App() {
   return <div className={`app-shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
     {sidebarOpen && <div className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} aria-hidden="true" />}
     <div className={`sidebar-wrap ${sidebarOpen ? 'open' : ''}`}><Sidebar activePage={visiblePage} collapsed={sidebarCollapsed} onToggleCollapse={() => setSidebarCollapsed((current) => !current)} onNavigate={navigate} alertCount={openAlerts.length} onClose={() => setSidebarOpen(false)} principal={principal} /></div>
-    <main className="main-shell"><Topbar title={title} subtitle={subtitle} theme={theme} onToggleTheme={toggleTheme} onScan={runScan} scanning={scanning} onMenu={() => setSidebarOpen((open) => !open)} onTour={() => setTourOpen(true)} onBell={() => setBellOpen((open) => !open)} onNotifications={() => setNotificationOpen((open) => !open)} escalationCount={escalationCount} notificationCount={notifications.filter((item) => !item.read).length} principal={principal} onSignOut={handleSignOut} anomalies={anomalies} alerts={alerts} reconciliation={reconciliation} onSelectAnomaly={selectAnomaly} onNavigate={navigate} />{pulse && <div className="realtime-indicator"><Wifi size={13} />Mesh live · {pulse.active_findings} active signals</div>}<div className="global-approval-flow"><ApprovalHierarchy compact request={currentRequest} preview={fallbackWorkflowPreview} onOpenLedger={() => navigate('changes')} /></div>
+    <main className="main-shell"><Topbar title={title} subtitle={subtitle} theme={theme} onToggleTheme={toggleTheme} onScan={runScan} scanning={scanning} onLoadHackathon={handleLoadHackathon} loadingHackathon={loadingHackathon} onMenu={() => setSidebarOpen((open) => !open)} onTour={() => setTourOpen(true)} onBell={() => setBellOpen((open) => !open)} onNotifications={() => setNotificationOpen((open) => !open)} escalationCount={escalationCount} notificationCount={notifications.filter((item) => !item.read).length} principal={principal} onSignOut={handleSignOut} anomalies={anomalies} alerts={alerts} reconciliation={reconciliation} onSelectAnomaly={selectAnomaly} onNavigate={navigate} />{pulse && <div className="realtime-indicator"><Wifi size={13} />Mesh live · {pulse.active_findings} active signals</div>}<div className="global-approval-flow"><ApprovalHierarchy compact request={currentRequest} preview={fallbackWorkflowPreview} onOpenLedger={() => navigate('changes')} /></div>
       {loading ? <div className="app-loading"><div className="loading-orbit"><LoaderCircle className="spin" size={31} /></div><h2>Warming the operational twin</h2><p>Loading specialist-agent context and synthetic logistics signals…</p></div> : error ? <div className="connection-error"><AlertTriangle size={25} /><h2>Operations API unavailable</h2><p>{error}</p><button className="primary-button" onClick={loadCore}><RefreshCw size={16} />Try again</button></div> : content}
     </main>
     <AnomalyDrawer anomaly={drawer} onClose={() => setDrawer(null)} onApply={applyAction} applying={applying} />

@@ -5,6 +5,7 @@ from copy import deepcopy
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+import os
 import uuid
 
 from fastapi import FastAPI, File, Header, HTTPException, Query, UploadFile, WebSocket
@@ -48,6 +49,13 @@ event_bus = EventBus(settings.redis_url)
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    if not os.environ.get("PYTEST_CURRENT_TEST"):
+        default_hackathon = Path(r"C:\Users\Mohd Aftaab\Downloads\Telegram Desktop\Warehouse_AI_Hackathon_Synthetic_Dataset_FINAL 2.xlsx")
+        if default_hackathon.exists() and not store._hackathon_loaded:
+            try:
+                store.load_hackathon(default_hackathon)
+            except Exception:
+                pass
     llm_client = get_llm_client(settings)
     probe_task = asyncio.create_task(llm_client.probe_and_configure_default())
     bus_task = asyncio.create_task(event_bus.start())
@@ -632,9 +640,12 @@ async def agent_architecture() -> dict[str, object]:
 
 @app.get("/api/anomalies")
 async def anomalies(
-    severity: str | None = Query(default=None), status: str | None = Query(default=None), search: str | None = Query(default=None)
+    severity: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    search: str | None = Query(default=None),
+    persona: str | None = Query(default=None),
 ) -> dict[str, object]:
-    results = store.anomalies(severity=severity, status=status, search=search)
+    results = store.anomalies(severity=severity, status=status, search=search, persona=persona)
     return {"items": results, "total": len(results)}
 
 
@@ -695,6 +706,50 @@ async def scan() -> dict[str, object]:
     result = await asyncio.to_thread(store.run_scan)
     await event_bus.publish("scan_complete", result)
     return result
+
+
+@app.post("/api/hackathon/load")
+async def hackathon_load(payload: dict[str, str] | None = None) -> dict[str, object]:
+    path_str = (payload or {}).get("file_path")
+    try:
+        stats = store.load_hackathon(path_str)
+        await event_bus.publish("scan_complete", {"scan_id": f"SCAN-{store._scan_count}", "findings": stats["anomalies_count"], "hackathon": True})
+        return stats
+    except FileNotFoundError as err:
+        raise HTTPException(status_code=404, detail=str(err))
+    except Exception as err:
+        raise HTTPException(status_code=500, detail=f"Failed to load hackathon dataset: {err}")
+
+
+@app.get("/api/hackathon/status")
+async def hackathon_status() -> dict[str, object]:
+    return {
+        "loaded": store._hackathon_loaded,
+        "anomalies_count": len(store._anomalies),
+        "path": str(store._hackathon_path) if store._hackathon_path else None,
+        "stats": store._hackathon_stats,
+    }
+
+
+@app.get("/api/hackathon/export")
+async def hackathon_export() -> dict[str, object]:
+    return store.hackathon_export()
+
+
+@app.post("/api/hackathon/contain")
+async def hackathon_contain(payload: dict[str, object] | None = None) -> dict[str, object]:
+    p = payload or {}
+    severity = str(p.get("severity")) if p.get("severity") else None
+    category = str(p.get("category")) if p.get("category") else None
+    limit = int(p.get("limit") or 10)
+    result = store.contain_hackathon(severity=severity, category=category, limit=limit)
+    await event_bus.publish("scan_complete", {"scan_id": f"SCAN-{store._scan_count}", "contained": result["contained_count"]})
+    return result
+
+
+@app.get("/api/hackathon/preventive")
+async def hackathon_preventive() -> dict[str, object]:
+    return store.hackathon_preventive()
 
 
 INCIDENT_ALIASES = {

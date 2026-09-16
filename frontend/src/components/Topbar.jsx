@@ -12,6 +12,8 @@ export function Topbar({
   onNotifications,
   onScan,
   scanning = false,
+  onLoadHackathon = null,
+  loadingHackathon = false,
   escalationCount = 0,
   notificationCount = 0,
   principal = null,
@@ -199,6 +201,27 @@ export function Topbar({
             </div>
           )}
         </div>
+
+        {onLoadHackathon && (
+          <button
+            className="topbar-scan-button"
+            onClick={onLoadHackathon}
+            disabled={loadingHackathon || scanning}
+            style={{
+              background: 'var(--card-bg, #fff)',
+              border: '1px solid var(--border-color, #cbd5e1)',
+              color: 'var(--text-primary, #0f172a)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+            }}
+            aria-label="Load Hackathon Dataset"
+            title="Load SAP Hackathon Dataset"
+          >
+            <Sparkles size={13} style={{ color: 'var(--accent, #3b82f6)' }} />
+            <span>{loadingHackathon ? 'Loading…' : '⚡ Hackathon Data'}</span>
+          </button>
+        )}
 
         <button
           className="topbar-scan-button primary-button"

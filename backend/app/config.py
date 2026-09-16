@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./nexus.db"
     redis_url: str = "redis://localhost:6379/0"
     uploads_dir: str = "./uploads"
+    # Hackathon: fixed reference date for all overdue/expiry/stale calculations.
+    # Corresponds to the dataset snapshot date in the provided workbook README.
+    snapshot_date: str = "2026-09-05"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

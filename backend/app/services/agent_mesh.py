@@ -47,6 +47,24 @@ SPECIALISTS = (
 # Role-specific system prompts — the heart of the agent quality
 # ---------------------------------------------------------------------------
 
+
+_SAP_DOMAIN_APPENDIX = (
+    "\n\n## SAP Warehouse & Logistics Domain Context\n"
+    "The operational data originates from SAP-style warehouse and logistics sheets:\n"
+    "- **Material_Master** (MARA/MARC): materials, UoM, reorder/safety stock, hazmat flag, lifecycle status\n"
+    "- **Inventory_Stock** (MARD/MCHB): on-hand, blocked, in-transit qty by plant/batch, expiry dates\n"
+    "- **Warehouse_Bin** (LAGP/LQUA): bin capacity vs occupancy, storage type (HAZ, RACK, FLOOR), bin status\n"
+    "- **Deliveries_Dispatch** (LIKP/LIPS): outbound deliveries, routes, planned GI dates, dispatch status\n"
+    "- **Purchase_Replenish** (EKKO/EKPO): purchase orders, vendor, unit price, expected delivery\n"
+    "- **Vendor_Master** (LFA1): vendor name, country, quality rating, on-time %, procurement block\n\n"
+    "Key entity codes: MAT-100000..MAT-100049 (standard materials), MAT-999001 (seeded orphan material), "
+    "VEND-5000 (blocked vendor), VEND-9999 (orphan vendor), Plant 1010/1710.\n"
+    "Anomaly catalog: A1-A6 (master data), B1-B5 (inventory/batch), C1-C4 (warehouse bin), "
+    "D2-D5 (dispatch), E1-E4 (purchase order), F1-F2 (vendor), X1-X2 (cross-system).\n"
+    "Snapshot date: 05 September 2026 — all overdue/expired/stale calculations use this reference.\n"
+    "ATP = Available-to-Promise = qty_on_hand - blocked_qty - Σ(open_delivery_qty).\n"
+)
+
 SPECIALIST_PROMPTS: dict[str, str] = {
 
     # ── SENTINEL ──────────────────────────────────────────────────────────
@@ -321,6 +339,10 @@ SPECIALIST_PROMPTS: dict[str, str] = {
     ),
 }
 
+# Append SAP domain vocabulary to every specialist prompt
+for _name in list(SPECIALIST_PROMPTS):
+    SPECIALIST_PROMPTS[_name] += _SAP_DOMAIN_APPENDIX
+
 # ---------------------------------------------------------------------------
 # Temperature calibration per role
 # ---------------------------------------------------------------------------
@@ -385,7 +407,7 @@ ORCHESTRATOR_PROMPT = (
     "150–300 words unless the question requires more detail.\n"
     "• Do NOT add supply-chain advice from general knowledge.  Only "
     "synthesize what the specialists provided."
-)
+) + _SAP_DOMAIN_APPENDIX
 
 ORCHESTRATOR_TEMPERATURE = 0.3
 
@@ -411,7 +433,18 @@ def _relevant(store: OperationsStore, question: str):
         haystack = f"{anomaly.id} {anomaly.title} {anomaly.type} {anomaly.sku} {anomaly.system} {anomaly.zone} {anomaly.summary} {anomaly.root_cause} {evidence} {controls}".lower()
         exact_id = 100 if anomaly.id.lower() in terms else 0
         semantic_matches = sum(1 + min(len(term), 12) / 12 for term in terms if term in haystack)
-        scored.append((exact_id + semantic_matches, anomaly))
+        persona_boost = 0
+        parts = anomaly.id.split("-")
+        cat = parts[1] if len(parts) >= 2 else ""
+        if {"dispatcher", "dispatch", "transport"} & terms and (cat.startswith("D") or cat == "X2"):
+            persona_boost = 50
+        elif {"inventory", "controller", "bin", "bins", "batch"} & terms and (cat.startswith("B") or cat.startswith("C")):
+            persona_boost = 50
+        elif {"steward", "data"} & terms and (cat.startswith("A") or cat == "X1"):
+            persona_boost = 50
+        elif {"procurement", "buyer", "purchase"} & terms and (cat.startswith("E") or cat.startswith("F")):
+            persona_boost = 50
+        scored.append((exact_id + persona_boost + semantic_matches, anomaly))
     ordered = [anomaly for _, anomaly in sorted(scored, key=lambda item: (item[0], item[1].impact), reverse=True)]
     return ordered[:3]
 
@@ -468,13 +501,26 @@ OPERATIONAL_TERMS = {
     "risk", "risks", "finding", "findings", "anomaly", "anomalies", "exposure", "control",
     "document", "documents", "scan", "operations", "operational", "approval", "approver",
     "request", "workflow", "queue", "assigned", "owner", "status", "evidence", "impact",
-    "value", "sla", "urgent", "priority", "incident", "inventory", "dispatch", "supplier",
+    "value", "sla", "urgent", "priority", "prioritize", "priorities", "incident", "inventory", "dispatch", "supplier",
+    "attention", "first", "safe", "safest", "option", "action", "actions", "why", "focus", "today", "persona", "preventive",
+    # SAP & Warehouse operational terms:
+    "atp", "stockout", "deficit", "shortfall", "shortage", "material", "materials", "sku", "skus",
+    "vendor", "vendors", "plant", "plants", "storage", "location", "bin", "bins", "batch", "batches",
+    "expiry", "expired", "stale", "dead", "hazmat", "hazard", "compliance", "delivery", "deliveries",
+    "route", "routes", "order", "orders", "po", "purchase", "replenish", "replenishment",
+    "uom", "reorder", "safety", "stock", "sap", "erp", "wms", "tms", "gi", "overdue",
+    "orphan", "blocked", "capacity", "overflow", "negative", "duplicate", "obsolete",
+    "dispatcher", "controller", "steward", "buyer", "procurement",
 }
 
 
 def _looks_operational(question: str) -> bool:
     terms = {term.lower() for term in re.findall(r"[A-Za-z0-9_-]+", question)}
-    return bool(terms & OPERATIONAL_TERMS)
+    if terms & OPERATIONAL_TERMS:
+        return True
+    if any(re.match(r"^(?:mat|vend|dlv|po|wh|hac)-", t) for t in terms):
+        return True
+    return False
 
 
 def _unsupported_response() -> ChatResponse:
@@ -517,9 +563,10 @@ def _scan_delta_response(store: OperationsStore) -> ChatResponse:
 
 
 def _needs_deterministic_answer(request: ChatRequest) -> bool:
+    full_context = f"{request.message} {' '.join(turn.content for turn in request.history[-4:])}".strip()
     question = request.message.lower()
     return (
-        not _looks_operational(request.message)
+        not _looks_operational(full_context)
         or (bool(re.search(r"\bdocuments?\b", question)) and not request.workflow_context)
         or bool(re.search(r"\b(?:what|which).{0,20}(?:changed|change).{0,20}(?:last|previous|prior)\b", question))
     )
@@ -537,8 +584,9 @@ def _validate_model_answer(answer: str | None, required_refs: list[str] | None =
 
 def deterministic_mesh(request: ChatRequest, store: OperationsStore) -> ChatResponse:
     """Synthesize a complete answer directly from current verified records."""
+    full_context = f"{request.message} {' '.join(turn.content for turn in request.history[-4:])}".strip()
     question = request.message.lower()
-    if not _looks_operational(request.message):
+    if not _looks_operational(full_context):
         return _unsupported_response()
     if re.search(r"\bdocuments?\b", question) and not request.workflow_context:
         return _document_response(store)
@@ -761,7 +809,7 @@ async def run_agent_mesh(request: ChatRequest, store: OperationsStore, settings:
         return deterministic_mesh(request, store)
 
     llm_client = get_llm_client(settings)
-    if llm_client.active_provider == "deterministic" and not (settings.openai_api_key or settings.agentrouter_api_key):
+    if llm_client.active_provider == "deterministic":
         return deterministic_mesh(request, store)
 
     try:
@@ -804,7 +852,7 @@ async def stream_agent_mesh(request: ChatRequest, store: OperationsStore, settin
         return
 
     llm_client = get_llm_client(settings)
-    if llm_client.active_provider == "deterministic" and not (settings.openai_api_key or settings.agentrouter_api_key):
+    if llm_client.active_provider == "deterministic":
         evidence = deterministic_mesh(request, store)
         yield f"event: trace\ndata: {json.dumps(evidence.agent_trace)}\n\n"
         for word in evidence.answer.split(" "):
