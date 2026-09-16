@@ -215,7 +215,7 @@ export function ChangeControl({ principal, focusRequestId, onWorkflowChanged }) 
                               <td>{row.field}</td>
                               <td>{valueLabel(row.before)}</td>
                               <td className="proposed-value">{valueLabel(row.proposed)}</td>
-                              <td className={row.after !== undefined && row.after !== null ? 'after-value' : ''}>{valueLabel(row.after)}</td>
+                              <td className={row.after !== undefined && row.after !== null ? 'after-value' : ''}>{row.after !== undefined && row.after !== null ? valueLabel(row.after) : 'On approval'}</td>
                             </tr>
                           ))}
                         </tbody>
