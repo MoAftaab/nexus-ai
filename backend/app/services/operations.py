@@ -1029,6 +1029,7 @@ class OperationsStore:
             p = Path(path)
             if p.exists():
                 return p
+            raise FileNotFoundError(f"Hackathon dataset file not found: {p}")
         base_dir = Path(__file__).resolve().parents[2]
         candidates = [
             base_dir / "datasets" / "Warehouse_AI_Hackathon_Synthetic_Dataset_FINAL 2.xlsx",

@@ -42,17 +42,237 @@ RULE_CONFIG: dict[str, dict[str, Any]] = {
 }
 
 
-def convert_findings_to_anomalies(findings_by_rule: dict[str, list[dict[str, Any]]] | list[dict[str, Any]]) -> list[Anomaly]:
-    """Transform raw dictionary findings from run_all_detectors into Pydantic Anomaly models.
+def _build_root_cause(rule_id: str, f: dict[str, Any], entity: str, plant: str) -> str:
+    if f.get("root_cause") and "failed validation rule" not in str(f.get("root_cause")):
+        return f["root_cause"]
 
-    Ensures every finding has:
-      • Deterministic, stable anomaly ID
-      • Corroborating evidence rows
-      • Realistic euro exposure calculation
-      • Actionable Fix Actions with human approval owners
-      • Multi-hop Cascade Graph (Source -> Process -> Risk -> Outcome)
-      • Standardized time_to_impact aligned with UI Horizon buckets (<2h, 2-8h, 8-24h, >24h)
-    """
+    if rule_id == "A1":
+        return f"Material master record {entity} in MARA was created without Base Unit of Measure (MEINS). Transaction processing, inventory valuation, and warehouse pick confirmations fail due to undefined unit conversion factors."
+    if rule_id == "A2":
+        rp = f.get("reorder_point")
+        return f"Material {entity} at Plant {plant} has an invalid or negative reorder point in MARC-MINBE ({rp}). SAP MRP runs cannot evaluate replenishment triggers, halting automatic purchase requisition creation."
+    if rule_id == "A3":
+        dups = ", ".join(f.get("duplicate_materials", []))
+        return f"Material {entity} shares an identical description '{f.get('description', '')}' with multiple distinct master records ({dups}). Ambiguous descriptions cause operator mis-picking and cross-SKU shipment discrepancies."
+    if rule_id == "A4":
+        ss = f.get("safety_stock")
+        rp = f.get("reorder_point")
+        return f"Material {entity} at Plant {plant} has safety stock ({ss}) exceeding reorder point ({rp}) in MARC. Inverted safety parameters generate persistent false replenishment alerts and warehouse storage congestion."
+    if rule_id == "A5":
+        dlv_po = f.get("delivery") or f.get("purchase_order") or "open transaction"
+        return f"Material {entity} has lifecycle status '{f.get('status') or 'OBSOLETE'}' in MARA but appears in open document {dlv_po}. Phase-out policy was violated without purging or reassigning active transactional orders."
+    if rule_id in ("A6", "C4"):
+        st = f.get("storage_type", "STD")
+        bin_id = f.get("bin", "unspecified")
+        return f"Material {entity} is flagged HAZMAT (Y) in MARA but assigned to standard storage bin {bin_id} (type {st}). Storage segregation violates environmental safety standards (EHS) and industrial compliance regulations."
+    if rule_id == "B1":
+        qty = f.get("qty_on_hand", 0)
+        return f"Storage location {f.get('storage_location', '0001')} shows negative inventory ({qty} EA) in MARD-LABST. Outbound goods issue posting preceded physical goods receipt confirmation, indicating book-to-physical sync failure (phantom inventory)."
+    if rule_id == "B2":
+        batch = f.get("batch", "unspecified")
+        exp = f.get("batch_expiry", "past")
+        qty = f.get("qty_on_hand", 0)
+        return f"Batch {batch} of material {entity} reached expiration date {exp} with {qty} EA active unblocked stock. Batch was not quarantined (movement 344), creating risk of shipping expired components to customers."
+    if rule_id == "B4":
+        days = f.get("days_stale", ">365")
+        last_mv = f.get("last_movement_date", "N/A")
+        qty = f.get("qty_on_hand", 0)
+        return f"Material {entity} at Plant {plant} has {qty} EA with zero movement for {days} days (since {last_mv}). Dormant working capital blocks bin space and faces obsolescence write-down risk."
+    if rule_id == "B5":
+        blk = f.get("blocked_qty", 0)
+        qty = f.get("qty_on_hand", 0)
+        return f"Storage location {f.get('storage_location', '0001')} records {blk} blocked units against {qty} total on hand. Inventory ledger distortion misstates Available-to-Promise (ATP) stock and inflates unfillable demand."
+    if rule_id == "C1":
+        bin_id = f.get("bin", entity)
+        occ = f.get("occupied", 0)
+        cap = f.get("capacity", 0)
+        return f"Warehouse bin {bin_id} occupancy ({occ} units) exceeds rated storage capacity ({cap} units) by {f.get('overflow_pct', 0)}%. Unconstrained putaway allocation bypassed EWM capacity checks, risking structural racking damage."
+    if rule_id == "C2":
+        bin_id = f.get("bin", entity)
+        st = f.get("bin_status", "UNKNOWN")
+        occ = f.get("occupied", 0)
+        return f"Warehouse bin {bin_id} status '{st}' conflicts with recorded occupancy ({occ} units). Warehouse management ledger is desynchronized with physical sensor or pick confirmation state."
+    if rule_id == "D2":
+        return f"Outbound delivery {entity} is missing carrier route assignment in LIKP-ROUTE. Carrier booking and dispatch scheduling cannot proceed, causing dock congestion and missed delivery windows."
+    if rule_id == "D3":
+        gi = f.get("planned_gi_date", "past")
+        days = f.get("overdue_days", 0)
+        st = f.get("status", "OPEN")
+        return f"Outbound delivery {entity} planned Goods Issue was {gi} ({days} days overdue) but remains in {st} status. Picking or freight dispatch stalled at Plant {plant}, breaching customer SLA delivery deadlines."
+    if rule_id == "D5":
+        route = f.get("route", "unknown")
+        cust = f.get("ship_to", "unknown")
+        return f"Delivery {entity} assigns export route {route} to domestic customer destination {cust}. Transport routing inconsistency causes freight cost leakage and border customs rejection."
+    if rule_id == "E1":
+        vend = f.get("vendor", "unknown")
+        return f"Purchase order {entity} references vendor {vend} which does not exist in Vendor Master (LFA1). Inbound goods receipt confirmation and three-way invoice matching cannot be executed."
+    if rule_id == "E2":
+        return f"Purchase order {entity} line item has zero or missing unit price. Unvalued purchase order bypasses financial commitment accounting and triggers mandatory invoice verification blocks (MRBR)."
+    if rule_id == "E3":
+        ed = f.get("expected_delivery", "N/A")
+        od = f.get("order_date", "N/A")
+        return f"Purchase order {entity} specifies expected delivery {ed} prior to order date {od}. Temporal sequencing error corrupts vendor delivery lead time metrics and scheduling agreement tracking."
+    if rule_id == "E4":
+        ed = f.get("expected_delivery", "past")
+        days = f.get("overdue_days", 0)
+        vend = f.get("vendor", "supplier")
+        return f"Purchase order {entity} from vendor {vend} is {days} days overdue (expected {ed}) and remains OPEN. Inbound supplier fulfillment failure threatens manufacturing line continuity and replenishment SLAs."
+    if rule_id == "F1":
+        vname = f.get("vendor_name", entity)
+        return f"Vendor master record {entity} ({vname}) is missing ISO country code (LFA1-LAND1). Cross-border tax determination, withholding tax, and compliance screening cannot be validated."
+    if rule_id == "F2":
+        po = f.get("purchase_order", "unspecified")
+        return f"Vendor {entity} has an active procurement block (LFA1-SPERR) but has open purchase order {po}. Procurement compliance breach violates supply chain risk controls by issuing orders to a disqualified supplier."
+    if rule_id == "X1":
+        sheets = ", ".join(f.get("present_in_sheets", []))
+        return f"Material {entity} is referenced in transactional records ({sheets}) but is absent from Material Master (MARA). Incomplete ERP-WMS master data synchronization caused transactional ghost entries."
+    if rule_id == "X2":
+        dem = f.get("committed_qty", 0)
+        atp = f.get("net_atp", 0)
+        short = f.get("shortfall", 0)
+        return f"Plant {plant} committed delivery demand ({dem} EA) exceeds net available-to-promise inventory ({atp} EA), resulting in an immediate shortfall of {short} EA across open dispatches."
+
+    return f.get("detail") or f"Discrepancy detected in validation rule {rule_id} for entity {entity}."
+
+
+def _build_fix_action(rule_id: str, f: dict[str, Any], entity: str, plant: str, idx: int, imp: int, severity: str, horizon: str, cfg: dict[str, Any]) -> FixAction:
+    if rule_id == "A1":
+        title = f"Assign Base UoM for {entity}"
+        desc = f"Update MARA-MEINS to standard base unit of measure and recalculate conversion ratios."
+    elif rule_id == "A2":
+        title = f"Recalculate reorder point for {entity}"
+        desc = f"Recalculate MARC-MINBE based on historical consumption and lead times to resume automated replenishment."
+    elif rule_id == "A3":
+        title = f"Deduplicate description for {entity}"
+        desc = f"Standardize description in MAKT to remove ambiguity and prevent picking errors."
+    elif rule_id == "A4":
+        title = f"Rebalance safety stock threshold for {entity}"
+        desc = f"Adjust safety stock below reorder point in MARC to restore correct replenishment alerting."
+    elif rule_id == "A5":
+        title = f"Purge obsolete material {entity} from open orders"
+        desc = f"Cancel open order lines and re-allocate active substitute materials."
+    elif rule_id in ("A6", "C4"):
+        title = f"Transfer hazmat {entity} to certified HAZ bin"
+        desc = f"Execute immediate transfer order to designated hazardous material storage location complying with EHS."
+    elif rule_id == "B1":
+        title = f"Reconcile inventory balance for {entity}"
+        desc = f"Perform physical cycle count, investigate timing of goods issue, and post inventory adjustment in MARD."
+    elif rule_id == "B2":
+        title = f"Quarantine expired batch {f.get('batch', '')} of {entity}"
+        desc = f"Execute movement 344 in SAP MARD to transfer {f.get('qty_on_hand', 0)} EA to blocked stock."
+    elif rule_id == "B4":
+        title = f"Initiate disposition review for stale {entity}"
+        desc = f"Evaluate dormant stock ({f.get('qty_on_hand', 0)} EA) for inter-plant transfer, vendor return, or write-off."
+    elif rule_id == "B5":
+        title = f"Realign blocked stock ledger for {entity}"
+        desc = f"Reconcile blocked stock quantities in MARD against active inspection lots."
+    elif rule_id == "C1":
+        title = f"Re-slot excess inventory from bin {f.get('bin', entity)}"
+        desc = f"Create putaway relocation tasks to transfer overflow volume to open reserve racking."
+    elif rule_id == "C2":
+        title = f"Synchronize bin {f.get('bin', entity)} occupancy status"
+        desc = f"Update WMS bin status ledger to match actual physical bin availability."
+    elif rule_id == "D2":
+        title = f"Assign transport carrier route for {entity}"
+        desc = f"Determine optimal carrier route in LIKP-ROUTE to book transport and release picking."
+    elif rule_id == "D3":
+        title = f"Expedite outbound dispatch for {entity}"
+        desc = f"Prioritize dock staging at Plant {plant}, alert carrier dispatch, and execute Post Goods Issue (VL02N)."
+    elif rule_id == "D5":
+        title = f"Reassign correct freight route for {entity}"
+        desc = f"Update delivery route assignment to match customer destination classification and avoid tariff penalties."
+    elif rule_id == "E1":
+        title = f"Enroll vendor {f.get('vendor', '')} in Vendor Master"
+        desc = f"Create vendor master record in LFA1 with verified tax and banking information or reassign PO."
+    elif rule_id == "E2":
+        title = f"Update contract pricing for PO {entity}"
+        desc = f"Apply purchasing info record contract pricing to clear invoice verification blocks."
+    elif rule_id == "E3":
+        title = f"Reschedule delivery date for PO {entity}"
+        desc = f"Update expected delivery date to respect chronological order lead time."
+    elif rule_id == "E4":
+        title = f"Expedite delayed PO {entity} with supplier"
+        desc = f"Issue supplier delivery notice and evaluate secondary source allocation."
+    elif rule_id == "F1":
+        title = f"Update country classification for vendor {entity}"
+        desc = f"Add ISO country code in LFA1-LAND1 to satisfy tax and trade compliance rules."
+    elif rule_id == "F2":
+        title = f"Cancel open POs with blocked vendor {entity}"
+        desc = f"Enforce compliance controls by cancelling open POs with blocked vendor and rerouting demand."
+    elif rule_id == "X1":
+        title = f"Publish Material Master record for {entity}"
+        desc = f"Synchronize WMS and ERP by creating master record in MARA/MARC with Plant {plant} parameters."
+    elif rule_id == "X2":
+        title = f"Allocate buffer stock for {entity}"
+        desc = f"Initiate expedited stock transfer to clear {f.get('shortfall', 0)} EA ATP deficit."
+    else:
+        title = f"Resolve {cfg['title']} for {entity}"
+        desc = f.get("detail") or f"Apply standard operating remediation protocol for {cfg['title']}."
+
+    return FixAction(
+        id=f"FX-{rule_id}-{idx+1}",
+        title=title,
+        owner="Operations Controller" if severity == "critical" else "Logistics Supervisor",
+        eta="1h" if horizon in ("1h", "4h") else "1 shift",
+        confidence=92,
+        description=desc,
+        impact_saved=int(imp * 0.85),
+    )
+
+
+def _build_cascade_nodes(rule_id: str, f: dict[str, Any], entity: str, plant: str, idx: int, imp: int, severity: str, horizon: str, cfg: dict[str, Any]) -> list[CascadeNode]:
+    slug = f"{rule_id}-{entity}-{idx}".replace(" ", "_")
+    src_id = f"{slug}-src"
+    proc_id = f"{slug}-proc"
+    risk_id = f"{slug}-risk"
+    out_id = f"{slug}-out"
+
+    if rule_id == "X1":
+        return [
+            CascadeNode(id=src_id, label=f"Orphan Master Record ({entity})", kind="source", health="critical", impact=0, detail=f"{entity} missing from MARA master table"),
+            CascadeNode(id=proc_id, label="Putaway & Picking Execution", kind="process", health="risk", impact=int(imp * 0.25), detail="Barcode scanners reject unrecognised material"),
+            CascadeNode(id=risk_id, label="Goods Issue Block", kind="risk", health="critical", impact=int(imp * 0.55), detail="SAP ERP blocks delivery confirmation"),
+            CascadeNode(id=out_id, label="Production Line Shutdown", kind="outcome", health="critical", impact=imp, detail=f"Modeled exposure €{imp:,}"),
+        ]
+    elif rule_id == "X2":
+        return [
+            CascadeNode(id=src_id, label=f"ATP Stock Shortfall ({entity})", kind="source", health="critical", impact=0, detail=f"Shortfall of {f.get('shortfall', 0)} EA at Plant {plant}"),
+            CascadeNode(id=proc_id, label="Order Picking Starvation", kind="process", health="risk", impact=int(imp * 0.25), detail="Picking waves stalled across open deliveries"),
+            CascadeNode(id=risk_id, label="Dispatch Staging Delay", kind="risk", health="critical", impact=int(imp * 0.55), detail="Vehicles holding at loading dock"),
+            CascadeNode(id=out_id, label="Customer Contractual Penalties", kind="outcome", health="critical", impact=imp, detail=f"Modeled exposure €{imp:,}"),
+        ]
+    elif rule_id == "D3":
+        return [
+            CascadeNode(id=src_id, label=f"Overdue Goods Issue ({entity})", kind="source", health="critical", impact=0, detail=f"Planned GI date {f.get('planned_gi_date', 'past')} missed"),
+            CascadeNode(id=proc_id, label="Dock Loading Stoppage", kind="process", health="risk", impact=int(imp * 0.25), detail=f"Stalled outbound shipping at Plant {plant}"),
+            CascadeNode(id=risk_id, label="Customer Delivery Breach", kind="risk", health="critical", impact=int(imp * 0.55), detail=f"Route {f.get('route', 'domestic')} delayed"),
+            CascadeNode(id=out_id, label="Customer Penalty & Revenue Loss", kind="outcome", health="critical", impact=imp, detail=f"Modeled exposure €{imp:,}"),
+        ]
+    elif rule_id == "B2":
+        return [
+            CascadeNode(id=src_id, label=f"Expired Batch ({f.get('batch', entity)})", kind="source", health="critical", impact=0, detail=f"Batch expired on {f.get('batch_expiry', 'past')}"),
+            CascadeNode(id=proc_id, label="Picking Verification Failure", kind="process", health="risk", impact=int(imp * 0.25), detail=f"Unquarantined expired stock in active bin"),
+            CascadeNode(id=risk_id, label="Quality Recall Exposure", kind="risk", health="critical", impact=int(imp * 0.55), detail="Risk of dispatching expired component"),
+            CascadeNode(id=out_id, label="Scrap & Compliance Liability", kind="outcome", health="critical", impact=imp, detail=f"Modeled exposure €{imp:,}"),
+        ]
+    elif rule_id == "B1":
+        return [
+            CascadeNode(id=src_id, label=f"Negative Stock Posting ({entity})", kind="source", health="critical", impact=0, detail=f"Book balance {f.get('qty_on_hand', 0)} EA in MARD"),
+            CascadeNode(id=proc_id, label="Inventory Desynchronization", kind="process", health="risk", impact=int(imp * 0.25), detail="GI posted prior to physical GR receipt"),
+            CascadeNode(id=risk_id, label="Phantom Order Fulfillment", kind="risk", health="critical", impact=int(imp * 0.55), detail="Allocations made against non-existent physical stock"),
+            CascadeNode(id=out_id, label="Physical Stockout & Audit Discrepancy", kind="outcome", health="critical", impact=imp, detail=f"Modeled exposure €{imp:,}"),
+        ]
+    else:
+        return [
+            CascadeNode(id=src_id, label=f"{cfg['title']} Source", kind="source", health="critical" if severity == "critical" else "risk", impact=0, detail=f.get("detail", "Root trigger")),
+            CascadeNode(id=proc_id, label="Process Execution Bottleneck", kind="process", health="risk", impact=int(imp * 0.25), detail=f"Impacts {cfg['sys']} operational workflow"),
+            CascadeNode(id=risk_id, label="Operational Disruption Risk", kind="risk", health="critical" if severity in ("critical", "high") else "watch", impact=int(imp * 0.55), detail="Propagation across dependent orders"),
+            CascadeNode(id=out_id, label="Financial & SLA Exposure", kind="outcome", health="critical", impact=imp, detail=f"Potential loss €{imp:,}"),
+        ]
+
+
+def convert_findings_to_anomalies(findings_by_rule: dict[str, list[dict[str, Any]]] | list[dict[str, Any]]) -> list[Anomaly]:
+    """Transform raw dictionary findings from run_all_detectors into Pydantic Anomaly models."""
     if isinstance(findings_by_rule, list):
         grouped: dict[str, list[dict[str, Any]]] = {}
         for item in findings_by_rule:
@@ -118,44 +338,21 @@ def convert_findings_to_anomalies(findings_by_rule: dict[str, list[dict[str, Any
             if not ev_list:
                 ev_list.append(Evidence(label="Detail", value=f.get("detail", "Anomaly identified"), source=cfg["sys"]))
 
-            # Cascade DAG (Source -> Process -> Risk -> Outcome)
             slug = f"{rule_id}-{entity}-{idx}".replace(" ", "_")
             src_id = f"{slug}-src"
             proc_id = f"{slug}-proc"
             risk_id = f"{slug}-risk"
             out_id = f"{slug}-out"
 
-            if rule_id == "X1":
-                nodes = [
-                    CascadeNode(id=src_id, label="Orphan Master Record (SKU)", kind="source", health="critical", impact=0, detail=f"{entity} missing in master data"),
-                    CascadeNode(id=proc_id, label="Putaway & Picking Execution", kind="process", health="risk", impact=int(imp * 0.25), detail="Barcode scanners reject unrecognised material"),
-                    CascadeNode(id=risk_id, label="GI & Invoicing Halt", kind="risk", health="critical", impact=int(imp * 0.55), detail="Post Goods Issue blocked by SAP validation"),
-                    CascadeNode(id=out_id, label="Customer Delivery Shutdown", kind="outcome", health="critical", impact=imp, detail="OEM customer stockout penalties"),
-                ]
-            else:
-                nodes = [
-                    CascadeNode(id=src_id, label=f"{cfg['title']} Source", kind="source", health="critical" if severity == "critical" else "risk", impact=0, detail=f.get("detail", "Root trigger")),
-                    CascadeNode(id=proc_id, label="Process Execution Bottleneck", kind="process", health="risk", impact=int(imp * 0.25), detail=f"Impacts plant {plant} operational flow"),
-                    CascadeNode(id=risk_id, label="Operational Disruption Risk", kind="risk", health="critical" if severity in ("critical", "high") else "watch", impact=int(imp * 0.55), detail="Propagation to dependent orders"),
-                    CascadeNode(id=out_id, label="Financial & SLA Exposure", kind="outcome", health="critical", impact=imp, detail=f"Potential loss €{imp:,}"),
-                ]
+            nodes = _build_cascade_nodes(rule_id, f, entity, plant, idx, imp, severity, horizon, cfg)
             edges = [
                 CascadeEdge(source=src_id, target=proc_id, label="triggers", probability=90),
                 CascadeEdge(source=proc_id, target=risk_id, label="propagates", probability=85),
                 CascadeEdge(source=risk_id, target=out_id, label="compounds", probability=80),
             ]
 
-            actions = [
-                FixAction(
-                    id=f"FX-{rule_id}-{idx+1}",
-                    title=f"Resolve {cfg['title']} for {entity}",
-                    owner="Operations Controller" if severity == "critical" else "Logistics Supervisor",
-                    eta="1h" if horizon in ("1h", "4h") else "1 shift",
-                    confidence=92,
-                    description=f"Apply remediation protocol for {f.get('detail', cfg['title'])}.",
-                    impact_saved=int(imp * 0.85),
-                )
-            ]
+            actions = [_build_fix_action(rule_id, f, entity, plant, idx, imp, severity, horizon, cfg)]
+            root_cause = _build_root_cause(rule_id, f, entity, plant)
 
             anomalies.append(Anomaly(
                 id=f"HAC-{rule_id}-{entity}-{idx}",
@@ -172,7 +369,7 @@ def convert_findings_to_anomalies(findings_by_rule: dict[str, list[dict[str, Any
                 impact=imp,
                 confidence=95,
                 summary=f.get("detail") or f"{cfg['title']} on {entity} requires immediate review.",
-                root_cause=f.get("root_cause") or f"System state failed validation rule {rule_id}.",
+                root_cause=root_cause,
                 evidence=ev_list[:5],
                 actions=actions,
                 cascade_nodes=nodes,
