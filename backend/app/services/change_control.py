@@ -5,6 +5,7 @@ from copy import deepcopy
 from datetime import date, datetime, timedelta, timezone
 import hashlib
 import json
+import math
 import uuid
 from typing import Any
 
@@ -32,6 +33,16 @@ MODEL_BY_TABLE = {
 def _jsonable(value: Any) -> Any:
     if isinstance(value, (datetime, date)):
         return value.isoformat()
+    # JSON has one JavaScript number type.  A value such as ``100.0`` is
+    # therefore sent back by the browser as ``100`` after a preview is
+    # parsed and stringified.  Normalize integral floats before hashing so a
+    # preview remains valid across that round trip.  Non-finite numbers are
+    # not valid JSON values and are represented as null for the same reason.
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            return None
+        if value == 0 or value.is_integer():
+            return int(value)
     if isinstance(value, dict):
         return {key: _jsonable(item) for key, item in value.items()}
     if isinstance(value, list):
