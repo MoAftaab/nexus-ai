@@ -131,7 +131,7 @@ export default function App() {
     const connect = () => {
       // When the API lives on another origin (deployed split), derive the WS
       // endpoint from VITE_API_URL; locally the Vite proxy forwards /ws.
-      const apiBase = import.meta.env.VITE_API_URL || 'https://nexus-ai-8r6f.onrender.com'
+      const apiBase = import.meta.env.VITE_API_URL || 'https://nexus-ai-unef.onrender.com'
       const wsBase = apiBase ? apiBase.replace(/^http/, 'ws') : `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`
       const token = session()?.session_token
       socket = new WebSocket(`${wsBase}/ws/operations${token ? `?token=${encodeURIComponent(token)}` : ''}`)
