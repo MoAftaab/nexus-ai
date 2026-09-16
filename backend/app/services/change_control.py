@@ -360,6 +360,7 @@ def build_change_preview(anomaly_id: str, action_id: str, user: dict[str, Any], 
         "source_hash": compute_snapshot_hash(before), "target_record_ids": [record["key"] for record in before["records"]],
         "policy_version": policy.version,
         "approval_route": approval_route,
+        "data_preview": snapshot_data_preview(before, proposed),
         "expected": {"impact_euros": anomaly.impact, "value_protected": next((action.impact_saved for action in anomaly.actions if action.id == action_id), anomaly.impact), "cascade_probability": 0, "p90_exposure": anomaly.impact, "readiness_effect": "improves after verification"},
     }
 
