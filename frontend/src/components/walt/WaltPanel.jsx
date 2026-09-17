@@ -76,13 +76,14 @@ export function WaltPanel({
   }, [messages, loading])
 
   return <section
-    className={`walt-panel ${closing ? 'is-closing' : ''}`}
+    className={`walt-panel ${closing ? 'is-closing' : ''} ${loading ? 'is-loading' : ''}`}
     data-compact={placement.height < 520}
     data-placement={placement.direction}
     style={{ left: `${placement.x}px`, top: `${placement.y}px`, width: `${placement.width}px`, height: `${placement.height}px` }}
     role="dialog"
     aria-modal="false"
     aria-label="WALT assistant"
+    aria-busy={loading}
   >
     <header className="walt-panel-header">
       <WaltMascot state={state} compact riskCount={riskCount} />

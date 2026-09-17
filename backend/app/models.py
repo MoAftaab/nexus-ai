@@ -77,6 +77,10 @@ class ChatRequest(BaseModel):
     # Populated only by the authenticated API route from live workflow data.
     # Any client-supplied value is overwritten before the mesh is invoked.
     workflow_context: dict[str, object] | None = None
+    # Populated only by the authenticated API route. This gives WALT enough
+    # context to explain the current role/site boundary without trusting the
+    # browser to declare its own permissions.
+    principal_context: dict[str, object] | None = None
 
 
 class WaltCommandRequest(BaseModel):

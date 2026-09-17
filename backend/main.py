@@ -991,7 +991,14 @@ def _chat_with_workflow_context(request: ChatRequest, user: dict[str, object]) -
             } for step in record.get("steps", [])],
             "principal": {"user_id": user.get("user_id"), "role": user.get("role")},
         }
-    return request.model_copy(update={"workflow_context": context})
+    principal_context = {
+        "user_id": user.get("user_id"),
+        "display_name": user.get("display_name"),
+        "role": user.get("role"),
+        "role_label": user.get("role_label") or str(user.get("role") or "").replace("_", " ").title(),
+        "site_scopes": list(user.get("site_scopes") or []),
+    }
+    return request.model_copy(update={"workflow_context": context, "principal_context": principal_context})
 
 
 @app.post("/api/chat")

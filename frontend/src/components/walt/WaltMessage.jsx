@@ -5,12 +5,33 @@ import { WaltAgentFlow } from './WaltAgentFlow'
 export function WaltMessage({ message, loading, architecture, onChoice, onConfirmAction, onDismissAction, onFeedback, onSelectAnomaly }) {
   const assistant = message.role === 'assistant'
   const action = message.action
+  const thinkingPhase = message.loadingPhase || (message.trace?.length ? 'evidence' : 'routing')
+  const thinkingCopy = {
+    routing: 'Routing your question to the right WALT capability',
+    evidence: 'Checking the official Hackathon SAP evidence',
+    synthesizing: 'Comparing signals and preparing a grounded answer',
+    verified: 'Verifying the response before it reaches you',
+  }
+  const phaseIndex = { routing: 0, evidence: 1, synthesizing: 2, verified: 2 }[thinkingPhase] ?? 0
+  const thinkingAgents = ['Ingestion', 'Data quality', 'Anomaly', 'Correlation', 'Impact', 'Action', 'WALT']
   return <article className={`walt-chat-message ${message.role}`}>
-    {assistant && !message.content && loading
-      ? <div className="walt-typing" aria-label="WALT is processing"><i /><i /><i /><span>Consulting 7 specialist agents…</span></div>
-      : assistant
-        ? <Markdown text={message.content || ''} onCite={(id) => onSelectAnomaly?.({ id })} />
-        : <p>{message.content}</p>}
+    {assistant && loading && <div className="walt-thinking-card" role="status" aria-live="polite" aria-label="WALT is thinking">
+      <div className="walt-thinking-beacon"><Sparkles size={13} /></div>
+      <div className="walt-thinking-copy">
+        <strong>WALT is thinking · 7 agents live</strong>
+        <span>{thinkingCopy[thinkingPhase] || thinkingCopy.routing}</span>
+      </div>
+      <div className="walt-thinking-agents" aria-label="Seven WALT agents are working">
+        {thinkingAgents.map((agent, index) => <span key={agent} style={{ '--thinking-agent-delay': `${index * 90}ms` }}><i />{agent}</span>)}
+      </div>
+      <div className="walt-thinking-steps" aria-hidden="true">
+        {['Route', 'Evidence', 'Answer'].map((label, index) => <span className={index <= phaseIndex ? 'is-active' : ''} key={label}><i />{label}</span>)}
+      </div>
+      <div className="walt-thinking-progress" aria-hidden="true"><i style={{ '--thinking-progress': `${Math.max(18, (phaseIndex + 1) * 33)}%` }} /></div>
+    </div>}
+    {assistant && message.content
+      ? <Markdown text={message.content} onCite={(id) => onSelectAnomaly?.({ id })} />
+      : !assistant ? <p>{message.content}</p> : null}
     {assistant && message.choices?.length > 0 && <div className="walt-command-choices" aria-label="Choose a governed request">
       {message.choices.map((choice) => <button type="button" key={choice.request_id} onClick={() => onChoice?.(choice.prompt)}>
         <span>{choice.request_id}</span><small>{choice.label.split(' · ', 2)[1] || choice.status}</small>
@@ -43,7 +64,7 @@ export function WaltMessage({ message, loading, architecture, onChoice, onConfir
       {action.status === 'failed' && <p className="walt-action-failure">{action.error}</p>}
     </section>}
     {assistant && message.content && <>
-      {message.trace?.length > 0 && !loading && <WaltAgentFlow trace={message.trace} architecture={architecture} />}
+      {message.trace?.length > 0 && !(message.trace.length === 1 && message.trace[0].agent === 'WALT') && <WaltAgentFlow trace={message.trace} architecture={architecture} streaming={loading} />}
       <footer>
         {['codecraft', 'openai', 'ollama'].includes(message.source) ? <Radio size={11} /> : message.source === 'governance' ? <ShieldCheck size={11} /> : <Database size={11} />}
         <span>{['codecraft', 'openai', 'ollama'].includes(message.source) ? `${architecture?.provider_label || 'Mesh LLM'} · 7 specialist agents + Orchestrator (WALT)` : message.source === 'governance' ? 'Verified identity & workflow policy' : message.source === 'request_cancelled' ? 'Request stopped by operator' : 'Grounded operational twin'}{message.confidence ? ` · ${message.confidence} confidence` : ''}{message.sourceRefs?.length ? ` · ${message.sourceRefs.slice(0, 3).join(', ')}` : ''}</span>

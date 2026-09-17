@@ -1,25 +1,29 @@
 import { Check, ChevronDown, Network, Sparkles } from 'lucide-react'
 import { agentPresentation } from '../../utils/agentLabels'
 
-const SPECIALISTS = [
-  { agent: 'Sentinel' },
-  { agent: 'Correlator' },
-  { agent: 'Cascade' },
-  { agent: 'Impact' },
-  { agent: 'Fix' },
+const HACKATHON_AGENTS = [
+  { agent: 'Ingestion Agent', role: '6 SAP sheets' },
+  { agent: 'Data-Quality Agent', role: 'Master data' },
+  { agent: 'Anomaly Agent', role: 'B1–F2 signals', traceAgent: 'Sentinel' },
+  { agent: 'Correlation / Root-Cause Agent', role: 'X1–X2 linkage', traceAgent: 'Correlator' },
+  { agent: 'Impact Agent', role: '€ exposure', traceAgent: 'Impact' },
+  { agent: 'Action / Remediation Agent', role: 'Human approval', traceAgent: 'Fix' },
+  { agent: 'Orchestrator (WALT)', role: 'Decision brief', traceAgent: 'Control Tower' },
 ]
 
-function specialistTrace(trace = []) {
+function agentTrace(trace = []) {
   const returned = new Map(trace.map((item) => [item.agent, item]))
-  return SPECIALISTS.map((specialist) => ({ ...specialist, ...returned.get(specialist.agent) }))
+  return HACKATHON_AGENTS.map((agent) => ({
+    ...agent,
+    ...(returned.get(agent.traceAgent) || returned.get(agent.agent) || {}),
+  }))
 }
 
 export function WaltAgentFlow({ trace = [], streaming = false, architecture }) {
-  const specialists = specialistTrace(trace)
+  const agents = agentTrace(trace)
   const hasTrace = trace.length > 0
   const knowledge = trace.find((item) => item.agent === 'Knowledge')
   const orchestrator = trace.find((item) => item.agent === 'Control Tower')
-  const completed = specialists.filter((item) => item.status && item.status !== 'degraded').length
   const modelName = architecture?.model || trace
     .map((item) => item.detail?.match(/(?:gpt|llama|claude)[\w.:-]*/i)?.[0])
     .find(Boolean)
@@ -28,12 +32,12 @@ export function WaltAgentFlow({ trace = [], streaming = false, architecture }) {
   return <details className="walt-agent-flow">
     <summary>
       <span className="walt-agent-flow__icon"><Network size={12} /></span>
-      <span><b>Multi-agent analysis</b><small>{hasTrace ? `${providerName}${modelName || 'Evidence mode'} · ${completed}/5 specialist handoffs` : `${providerName || ''}7 specialists consulting in parallel`}</small></span>
+      <span><b>7-agent analysis</b><small>{hasTrace ? `${providerName}${modelName || 'Evidence mode'} · 7 agent handoffs complete` : `${providerName || ''}7 agents consulting in parallel`}</small></span>
       <ChevronDown className="walt-agent-flow__chevron" size={13} />
     </summary>
     <div className="walt-agent-flow__body">
       <div className="walt-agent-flow__specialists">
-        {specialists.map((item, index) => <div
+        {agents.map((item, index) => <div
           className={`walt-agent-chip ${item.status === 'degraded' ? 'is-degraded' : hasTrace ? 'is-done' : 'is-active'}`}
           style={{ '--agent-delay': `${index * 110}ms` }}
           key={item.agent}

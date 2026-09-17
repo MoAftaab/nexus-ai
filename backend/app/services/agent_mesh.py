@@ -490,7 +490,7 @@ def _evidence_packet(store: OperationsStore, request: ChatRequest) -> tuple[str,
     markdown = store.knowledge_context(request.message)
     docs_text = "\n\n".join(f"SOURCE: {item['source']}\n{item['content']}" for item in markdown)
     workflow_text = json.dumps(request.workflow_context, sort_keys=True, default=str) if request.workflow_context else "No governed request is selected."
-    return f"VERIFIED FINDINGS\n{finding_text}\n\nSERVER-VERIFIED WORKFLOW CONTEXT\n{workflow_text}\n\nRETRIEVED MARKDOWN CONTEXT\n{docs_text}", markdown, [item.id for item in related]
+    return f"{_principal_prompt_context(request)}\n\nVERIFIED FINDINGS\n{finding_text}\n\nSERVER-VERIFIED WORKFLOW CONTEXT\n{workflow_text}\n\nRETRIEVED MARKDOWN CONTEXT\n{docs_text}", markdown, [item.id for item in related]
 
 
 # ---------------------------------------------------------------------------
@@ -511,8 +511,10 @@ OPERATIONAL_TERMS = {
     "uom", "reorder", "safety", "stock", "sap", "erp", "wms", "tms", "gi", "overdue",
     "orphan", "blocked", "capacity", "overflow", "negative", "duplicate", "obsolete",
     "dispatcher", "controller", "steward", "buyer", "procurement",
-    # Multi-agent architecture and conversational triggers:
-    "agent", "agents", "walt", "specialist", "specialists", "mesh", "architecture", "who", "help", "hello", "hi", "hey",
+    # Multi-agent architecture terms. Conversational words such as "who" and
+    # "help" stay out of this set so ordinary questions do not get mistaken
+    # for warehouse questions.
+    "agent", "agents", "walt", "specialist", "specialists", "mesh", "architecture",
     # Dataset-level questions are operational questions too. Keep these here
     # so follow-ups such as "show the whole dataset" reach the evidence engine
     # instead of falling through to the generic unsupported response.
@@ -534,9 +536,10 @@ def _looks_operational(question: str) -> bool:
 def _unsupported_response() -> ChatResponse:
     return ChatResponse(
         answer=(
-            "I don't have verified operational evidence for that question yet. "
-            "Ask me about current risks, findings, controls, documents, approvals, "
-            "request status, your manager, or your site scope."
+            "I’m WALT, the Warehouse Logistics Twin. I can answer general factual "
+            "questions briefly, but I need a live warehouse context for an operational "
+            "answer. Ask about the Hackathon dataset, a finding ID, evidence, controls, "
+            "approval ownership, your role/site scope, or a governed reminder/escalation."
         ),
         source="operational_evidence", cited_anomaly_ids=[], suggested_actions=[],
         confidence="low", source_refs=[],
@@ -633,6 +636,25 @@ def _needs_deterministic_answer(request: ChatRequest) -> bool:
         (bool(re.search(r"\bdocuments?\b", question)) and not request.workflow_context)
         or bool(re.search(r"\b(?:whole|overall|entire|complete|full|all|dataset|records?|summary|overview|breakdown|by severity|how many|count|counts|total|trend|compare|comparison)\b", question))
         or bool(re.search(r"\b(?:what|which).{0,20}(?:changed|change).{0,20}(?:last|previous|prior)\b", question))
+    )
+
+
+def _conversation_text(request: ChatRequest) -> str:
+    """Include recent turns for follow-ups without treating them as authority."""
+    recent = " ".join(turn.content for turn in request.history[-4:])
+    return f"{recent} {request.message}".strip()
+
+
+def _principal_prompt_context(request: ChatRequest) -> str:
+    principal = request.principal_context or {}
+    role = principal.get("role_label") or principal.get("role") or "Unknown role"
+    scopes = ", ".join(str(item) for item in (principal.get("site_scopes") or [])) or "No site scope recorded"
+    return (
+        "SERVER-VERIFIED OPERATOR SCOPE\n"
+        f"Role: {role}\n"
+        f"Authorized site scope: {scopes}\n"
+        "Use this only to explain visibility and permissions. Never grant a permission "
+        "that is not present in the server-verified workflow context."
     )
 
 
@@ -764,6 +786,28 @@ def deterministic_mesh(request: ChatRequest, store: OperationsStore) -> ChatResp
             source="operational_evidence", cited_anomaly_ids=[], suggested_actions=[], agent_trace=trace, confidence="high", source_refs=[],
         )
 
+    if re.search(r"\b(?:step|steps|procedure|walk me through|how do i|what should i do next|next steps)\b", question):
+        controls = lead.actions[:3]
+        if controls:
+            step_lines = "\n".join(
+                f"{index}. **{control.title}** — owner: {control.owner}; ETA: {control.eta}; "
+                f"verification: {control.description}"
+                for index, control in enumerate(controls, 1)
+            )
+        else:
+            step_lines = "1. Hold the affected process and escalate to the operations manager because no verified control is attached."
+        return ChatResponse(
+            answer=(
+                f"### Recommended next steps — {lead.id}\n"
+                f"These steps address **{lead.title}** ({lead.severity} severity) using only the controls attached to the live finding.\n\n"
+                f"{step_lines}\n\n"
+                "Review the evidence first, then submit the selected control through Change Control. WALT can prepare a reminder or escalation, but a human approver must confirm any notification or source-changing action."
+            ),
+            source="operational_evidence", cited_anomaly_ids=[lead.id],
+            suggested_actions=[control.title for control in controls], agent_trace=trace,
+            confidence="high", source_refs=[lead.id],
+        )
+
     open_findings = [item for item in store.anomalies() if item.status != "resolved"]
     total_exposure = sum(item.impact for item in open_findings)
     actions = [action.title for item in related for action in item.actions][:3]
@@ -846,6 +890,7 @@ async def _run_all_specialists(llm_client, request: ChatRequest, store: Operatio
     """
     related = _relevant(store, request.message)
     finding_text = _build_findings_text(related)
+    finding_text = f"{_principal_prompt_context(request)}\n\n{finding_text}"
     if request.workflow_context:
         finding_text += "\n\nSERVER-VERIFIED WORKFLOW CONTEXT\n" + json.dumps(request.workflow_context, sort_keys=True, default=str)
     ids = [item.id for item in related]
@@ -910,10 +955,19 @@ def _build_trace(handoffs, markdown, model_name: str = "AgentRouter Claude", inc
 # ---------------------------------------------------------------------------
 
 GENERAL_WALT_PROMPT = (
-    "You are WALT, a helpful assistant inside an enterprise operations control tower. "
-    "Answer the user's general question accurately and in simple, direct terms. "
-    "Keep the answer concise unless the user asks for detail. Do not pretend to have "
-    "live operational evidence for a topic that was not provided."
+    "You are WALT (Warehouse Action & Logistics Twin), the conversational assistant "
+    "inside an enterprise supply-chain control tower. Answer in simple, direct terms "
+    "and use the recent conversation to understand follow-up questions. You may answer "
+    "brief general factual questions, but keep your primary role focused on warehouse "
+    "operations, the official Hackathon SAP dataset, anomalies, evidence, controls, "
+    "approvals, and role/site scope. For unrelated open-ended requests such as social "
+    "media ideas, recipes, travel planning, usernames, or lifestyle recommendations, "
+    "politely say that WALT is scoped to warehouse operations and offer a relevant "
+    "alternative. Do not invent live records, anomaly IDs, euro values, permissions, "
+    "or actions. Never claim that a notification, approval, remediation, or source "
+    "change was executed. Explain uncertainty plainly. If the operator asks for steps, "
+    "give numbered steps and make clear which steps are recommendations and which "
+    "require human approval."
 )
 
 
@@ -938,11 +992,16 @@ async def run_agent_mesh(request: ChatRequest, store: OperationsStore, settings:
     # General questions do not need five specialist calls and a long evidence
     # synthesis. Route them through one short WALT completion so the chat can
     # answer ordinary questions as well as dataset questions.
-    if not _looks_operational(request.message):
+    conversation_text = _conversation_text(request)
+    if not _looks_operational(conversation_text):
         try:
             final_text, provider = await llm_client.generate(
                 instructions=GENERAL_WALT_PROMPT,
-                input_text=request.message,
+                input_text=(
+                    f"{_principal_prompt_context(request)}\n\n"
+                    f"RECENT CONVERSATION\n{conversation_text}\n\n"
+                    f"CURRENT QUESTION\n{request.message}"
+                ),
                 temperature=0.2,
                 max_tokens=768,
             )
@@ -1003,13 +1062,18 @@ async def stream_agent_mesh(request: ChatRequest, store: OperationsStore, settin
         yield f"event: done\ndata: {json.dumps({'source': evidence.source, 'cited_anomaly_ids': evidence.cited_anomaly_ids, 'suggested_actions': evidence.suggested_actions, 'confidence': evidence.confidence, 'source_refs': evidence.source_refs})}\n\n"
         return
 
-    if not _looks_operational(request.message):
+    conversation_text = _conversation_text(request)
+    if not _looks_operational(conversation_text):
         trace = _generic_trace(llm_client.active_provider)
         yield f"event: trace\ndata: {json.dumps(trace)}\n\n"
         try:
             async for token in llm_client.stream(
                 instructions=GENERAL_WALT_PROMPT,
-                input_text=request.message,
+                input_text=(
+                    f"{_principal_prompt_context(request)}\n\n"
+                    f"RECENT CONVERSATION\n{conversation_text}\n\n"
+                    f"CURRENT QUESTION\n{request.message}"
+                ),
                 temperature=0.2,
                 max_tokens=768,
             ):

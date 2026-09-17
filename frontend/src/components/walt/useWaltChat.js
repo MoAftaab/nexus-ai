@@ -72,7 +72,14 @@ export function useWaltChat(onChatStream, onResolve, onConfirm, onFeedback, open
     const selectedRequestId = requestRef.current
     const history = messages.filter((message) => message.content).map(({ role, content }) => ({ role, content }))
     const assistantId = `walt-${Date.now()}-${Math.random().toString(36).slice(2)}`
-    setMessages((current) => [...current, { role: 'user', content: question }, { id: assistantId, role: 'assistant', content: '', source: 'streaming' }])
+    setMessages((current) => [...current, { role: 'user', content: question }, {
+      id: assistantId,
+      role: 'assistant',
+      content: '',
+      source: 'streaming',
+      loadingPhase: 'routing',
+      trace: [],
+    }])
     setInput('')
     setLastQuestion(question)
     setError('')
@@ -91,6 +98,7 @@ export function useWaltChat(onChatStream, onResolve, onConfirm, onFeedback, open
           ...message,
           content: resolution.answer || 'The governed command was evaluated.',
           source: 'governance',
+          loadingPhase: null,
           action: resolution.action,
           choices: (resolution.choices || []).map((choice) => ({ ...choice, prompt: `${question} ${choice.request_id}` })),
           responseType: resolution.type,
@@ -108,12 +116,13 @@ export function useWaltChat(onChatStream, onResolve, onConfirm, onFeedback, open
         if (event === 'delta' || event === 'reset') setActivityState('speaking')
         setMessages((current) => current.map((message) => {
           if (message.id !== assistantId) return message
-          if (event === 'trace') return { ...message, trace: Array.isArray(payload) ? payload : [] }
-          if (event === 'delta') return { ...message, content: message.content + payload.text }
-          if (event === 'reset') return { ...message, content: payload.text || '', source: 'operational_evidence' }
+          if (event === 'trace') return { ...message, trace: Array.isArray(payload) ? payload : [], loadingPhase: 'evidence' }
+          if (event === 'delta') return { ...message, content: message.content + payload.text, loadingPhase: 'synthesizing' }
+          if (event === 'reset') return { ...message, content: payload.text || '', source: 'operational_evidence', loadingPhase: 'verified' }
           if (event === 'done') return {
             ...message,
             source: payload.source || 'operational_evidence',
+            loadingPhase: null,
             citedAnomalyIds: payload.cited_anomaly_ids || [],
             suggestions: payload.suggested_actions || [],
             confidence: payload.confidence || 'medium',

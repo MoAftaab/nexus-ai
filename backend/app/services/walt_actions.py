@@ -101,8 +101,19 @@ def _intent(message: str, history: list[Any] | None = None) -> str | None:
         return "greeting"
     if re.fullmatch(r"(?:thanks|thank you|thx|cheers|got it|perfect|that helps)[!.? ]*", text):
         return "thanks"
-    if any(term in text for term in ("what can you do", "what do you do", "how can you help", "help me", "help with", "capabilities")):
+    scope_terms = re.compile(
+        r"\b(?:anomal(?:y|ies)|finding|dataset|sap|inventory|stock|material|vendor|plant|"
+        r"delivery|dispatch|purchase|warehouse|control|approval|request|workflow|role|scope|"
+        r"evidence|walt|operations?)\b|\b(?:hac|mat|vend|po|cr|dlv)-[a-z0-9-]+",
+        re.IGNORECASE,
+    )
+    if any(term in text for term in ("what can you do", "what do you do", "how can you help", "help me", "help with", "capabilities")) and not scope_terms.search(text):
         return "help"
+    if (
+        re.search(r"\b(?:suggest|recommend|ideas?|recipe|recipes|travel|vacation|username|usernames|instagram|youtube|tiktok|lifestyle)\b", text)
+        and not scope_terms.search(text)
+    ):
+        return "out_of_scope"
     if re.search(r"\b(?:send|forward|write)\s+(?:an?\s+)?email\b", text) or (re.match(r"^(?:email|mail)\s+(?:my\s+)?(?:manager|supervisor|boss)\b", text) and not re.search(r"\b(?:address|email|e-mail|mail|contact|details)\b", text)):
         return "email_unavailable"
     if "escalat" in text:
@@ -250,6 +261,17 @@ def resolve_walt_command(message: str, request_id: str | None, principal: dict[s
             "handled": True,
             "type": "conversation",
             "answer": "You can ask me things like **“Who is my manager and what is their email?”**, **“What is my role and site scope?”**, **“Who owns CR-123?”**, **“What needs my approval?”**, or **“Remind the current approver”**. I answer identity and workflow questions from live records, and I always ask for confirmation before sending a notification.",
+        }
+
+    if intent == "out_of_scope":
+        return {
+            "handled": True,
+            "type": "conversation",
+            "answer": (
+                "I’m WALT, so I stay focused on warehouse and supply-chain operations. "
+                "I can suggest a safer control, explain an anomaly, compare SAP records, "
+                "or prepare a governed reminder/escalation instead."
+            ),
         }
 
     if intent == "identity":
