@@ -10,7 +10,6 @@ import {
   ShieldCheck,
   Sparkles,
   Timer,
-  Zap,
 } from 'lucide-react'
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts'
 import { compactCurrency, currency, timeAgo } from '../utils'
@@ -18,7 +17,6 @@ import {
   buildApprovalPipeline,
   buildExposureBySeverity,
   buildImpactHorizon,
-  buildInsights,
   buildSystemExposure,
   minutesToImpact,
 } from '../utils/dashboardKpis'
@@ -33,7 +31,7 @@ function DonutTip({ active, payload }) {
   )
 }
 
-export function CommandCenter({ dashboard, workflow, outcomes, anomalies, onNavigate, onSelectAnomaly, scanning }) {
+export function CommandCenter({ dashboard, workflow, anomalies, onNavigate, onSelectAnomaly, scanning }) {
   const open = useMemo(() => anomalies?.filter((a) => a.status !== 'resolved') || [], [anomalies])
   const resolved = useMemo(() => anomalies?.filter((a) => a.status === 'resolved') || [], [anomalies])
   const exposure = useMemo(() => open.reduce((s, a) => s + (Number(a.impact) || 0), 0), [open])
@@ -51,10 +49,6 @@ export function CommandCenter({ dashboard, workflow, outcomes, anomalies, onNavi
   const severityData = useMemo(() => buildExposureBySeverity(anomalies), [anomalies])
   const systemData = useMemo(() => buildSystemExposure(anomalies), [anomalies])
   const pipeline = useMemo(() => buildApprovalPipeline(workflow), [workflow])
-  const insights = useMemo(
-    () => buildInsights(anomalies, workflow, dashboard, outcomes),
-    [anomalies, workflow, dashboard, outcomes]
-  )
   const horizon = useMemo(() => buildImpactHorizon(anomalies), [anomalies])
   // Soonest-to-impact first, then largest exposure — the true "fix before impact" order.
   const queue = useMemo(
@@ -71,7 +65,6 @@ export function CommandCenter({ dashboard, workflow, outcomes, anomalies, onNavi
   const systemMax = Math.max(1, ...systemData.map((s) => s.exposure))
   const protectedValue = Number(workflow?.verified_value_protected) || 0
 
-  const topInsight = insights[0]
   const urgent = horizon[0]
   const horizonBand = horizon.filter((bucket) => bucket.exposure > 0)
 
@@ -89,28 +82,6 @@ export function CommandCenter({ dashboard, workflow, outcomes, anomalies, onNavi
 
   return (
     <div className="page command-page cc-root">
-      {/* Top toolbar */}
-      <header className="cc-bar">
-        <div className="cc-bar-left">
-          <span className="cc-pulse">
-            <span className="pulse-dot" />
-            Last scan {dashboard?.last_scan ? timeAgo(dashboard.last_scan) : 'just now'}
-          </span>
-          {critical > 0 && (
-            <span className="cc-critical-badge">
-              <ShieldAlert size={11} />
-              {critical} critical path{critical > 1 ? 's' : ''}
-            </span>
-          )}
-          {topInsight && (
-            <span className="cc-bar-insight">
-              <Zap size={11} />
-              {topInsight.text}
-            </span>
-          )}
-        </div>
-      </header>
-
       {/* Executive KPI strip */}
       <section className="cc-kpi-strip">
         {kpis.map((kpi, i) => {
@@ -134,7 +105,7 @@ export function CommandCenter({ dashboard, workflow, outcomes, anomalies, onNavi
         <div className="cc-card cc-tile-horizon">
           <div className="cc-card-head">
             <span><Timer size={12} /> Impact horizon</span>
-            <small>{open.length} open · by deadline</small>
+            <small>{open.length} open · by deadline · scan {dashboard?.last_scan ? timeAgo(dashboard.last_scan) : 'just now'}</small>
           </div>
           <div className="cc-horizon-body">
             <div className={`cc-horizon-lead ${urgent.findings ? '' : 'clear'}`}>
@@ -264,11 +235,11 @@ export function CommandCenter({ dashboard, workflow, outcomes, anomalies, onNavi
         <div className="cc-card cc-tile-systems">
           <div className="cc-card-head">
             <span><Layers size={12} /> System exposure</span>
-            <small>top {systemData.length || 0}</small>
+            <small>top {Math.min(systemData.length, 6)}</small>
           </div>
           <div className="cc-sysbar-body">
             {systemData.length ? (
-              systemData.map((s) => (
+              systemData.slice(0, 6).map((s) => (
                 <div key={s.system} className="cc-sysbar-row">
                   <span className="cc-sysbar-name" title={s.system}>{s.system}</span>
                   <i className="cc-sysbar-track">

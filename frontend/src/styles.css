@@ -5018,9 +5018,11 @@ body { overflow-x: hidden; }
   font: 800 clamp(7px, 0.7vw, 8px) var(--font-data);
   letter-spacing: .05em;
   text-transform: uppercase;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  line-height: 1.25;
+  min-height: 20px;
 }
 .cc-horizon-dot {
   width: 4.5px;
@@ -5167,7 +5169,7 @@ body { overflow-x: hidden; }
 }
 .cc-sysbar-row {
   display: grid;
-  grid-template-columns: minmax(0, 92px) minmax(0, 1fr) auto 30px;
+  grid-template-columns: minmax(118px, .9fr) minmax(90px, 1.25fr) auto 34px;
   align-items: center;
   gap: 11px;
   padding: 7px 0;
@@ -5175,9 +5177,12 @@ body { overflow-x: hidden; }
 }
 .cc-sysbar-row:last-child { border-bottom: 0; }
 .cc-sysbar-name {
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
   color: var(--text-2);
   font: 700 9.5px var(--font-ui);
+  line-height: 1.25;
 }
 .cc-sysbar-track {
   display: block; height: 6px;
@@ -5400,6 +5405,25 @@ body { overflow-x: hidden; }
   .cc-horizon-item-value strong {
     font-size: 15.5px;
   }
+  .cc-horizon-item-top { align-items: flex-start; }
+  .cc-horizon-tag {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    line-height: 1.25;
+    min-height: 20px;
+  }
+  .cc-sysbar-row {
+    grid-template-columns: minmax(150px, .9fr) minmax(120px, 1.45fr) auto 36px;
+    gap: 12px;
+    padding-block: 9px;
+  }
+  .cc-sysbar-name {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    line-height: 1.25;
+  }
   .cc-tile-queue { min-height: 340px; }
   .cc-queue-row { flex: 0 0 auto; max-height: none; min-height: 54px; }
   .cc-queue-row:nth-child(n + 6) { display: grid; }
@@ -5422,6 +5446,18 @@ body { overflow-x: hidden; }
   .cc-horizon-item-value strong {
     font-size: 14px;
   }
+  .cc-sysbar-row {
+    grid-template-columns: minmax(135px, .95fr) minmax(72px, 1.2fr) auto 32px;
+    gap: 8px;
+  }
+  .cc-sysbar-row strong { font-size: 9px; }
+  .cc-sysbar-row em { font-size: 8px; }
+}
+
+@media (max-width: 400px) {
+  .cc-horizon-legend { grid-template-columns: 1fr; }
+  .cc-horizon-item { min-height: 62px; }
+  .cc-sysbar-row { grid-template-columns: minmax(118px, 1fr) minmax(55px, 1fr) auto 28px; }
 }
 
 
