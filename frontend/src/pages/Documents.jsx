@@ -1,13 +1,15 @@
 import { useRef, useState } from 'react'
 import { ArrowUpRight, CheckCircle2, DatabaseZap, FileCheck2, FileText, FileWarning, FolderUp, Sparkles, Trash2, UploadCloud, X } from 'lucide-react'
 
-export function Documents({ onInspect, onClearDocuments, documentData, onSelectAnomaly }) {
+export function Documents({ onInspect, onClearDocuments, documentData, anomalies = [], onSelectAnomaly, onNavigate }) {
   const inputRef = useRef(null)
   const [result, setResult] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const ingested = (documentData?.items || []).filter((item) => item.status !== 'source').slice(0, 6)
   const isHackathonDataset = documentData?.summary?.dataset_source === 'SAP Hackathon six-sheet workbook'
+  const relatedFindingIds = result?.related_anomaly_ids || []
+  const relatedFindings = relatedFindingIds.map((id) => anomalies.find((item) => item.id === id) || { id })
 
   const inspect = async (file) => {
     if (!file) return
@@ -142,6 +144,26 @@ export function Documents({ onInspect, onClearDocuments, documentData, onSelectA
                 <h3>{result?.filename || 'Awaiting an operational document'}</h3>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {relatedFindingIds.length > 0 && (
+                  <div className="document-finding-actions">
+                    <button
+                      className="document-related-summary"
+                      type="button"
+                      onClick={() => onSelectAnomaly?.(relatedFindings[0])}
+                      title="Open the first related finding"
+                    >
+                      <FileWarning size={12} />
+                      <span><strong>{relatedFindingIds.length}</strong> related {relatedFindingIds.length === 1 ? 'finding' : 'findings'}</span>
+                    </button>
+                    <button
+                      className="document-open-finding"
+                      type="button"
+                      onClick={() => onSelectAnomaly?.(relatedFindings[0])}
+                    >
+                      Open finding <ArrowUpRight size={11} />
+                    </button>
+                  </div>
+                )}
                 {result && (
                   <button
                     className="doc-header-action-btn"
@@ -181,6 +203,38 @@ export function Documents({ onInspect, onClearDocuments, documentData, onSelectA
               </div>
 
               <div className="document-fields-scroll">
+                {relatedFindings.length > 0 && (
+                  <section className="document-finding-view" aria-label="Related findings">
+                    <div className="document-finding-view-head">
+                      <div>
+                        <span className="eyebrow"><FileWarning size={11} /> Evidence ↔ finding</span>
+                        <strong>Document-linked risk</strong>
+                      </div>
+                      {onNavigate && (
+                        <button type="button" className="document-risk-link" onClick={() => onNavigate('intelligence')}>
+                          Open in Risk Intelligence <ArrowUpRight size={11} />
+                        </button>
+                      )}
+                    </div>
+                    <div className="document-finding-list">
+                      {relatedFindings.map((finding) => (
+                        <article key={finding.id} className={`document-finding-card ${finding.severity || 'attention'}`}>
+                          <div className="document-finding-card-main">
+                            <div className="document-finding-card-top">
+                              <span className={`severity-pill ${finding.severity || 'high'}`}>{finding.severity || 'linked'}</span>
+                              <code>{finding.id}</code>
+                            </div>
+                            <strong>{finding.title || 'Related operational finding'}</strong>
+                            <span>{finding.impact != null ? `${finding.impact.toLocaleString?.() || finding.impact} exposure` : 'Open the finding to review impact and controls'}</span>
+                          </div>
+                          <button type="button" className="document-finding-open" onClick={() => onSelectAnomaly?.(finding)}>
+                            Open details <ArrowUpRight size={12} />
+                          </button>
+                        </article>
+                      ))}
+                    </div>
+                  </section>
+                )}
                 {result?.fields?.length ? (
                   <div className="document-fields-grid">
                     {result.fields.map((field) => (
@@ -237,13 +291,13 @@ export function Documents({ onInspect, onClearDocuments, documentData, onSelectA
                     </div>
                   </div>
                 )}
-                {result?.related_anomaly_ids?.length > 0 && (
+                {relatedFindingIds.length > 0 && (
                   <div className="document-related-findings">
-                    <span><FileWarning size={12} /> Related Hackathon findings</span>
+                    <span><FileWarning size={12} /> Related findings</span>
                     <div>
-                      {result.related_anomaly_ids.map((id) => (
-                        <button key={id} type="button" onClick={() => onSelectAnomaly?.({ id })}>
-                          {id} <ArrowUpRight size={11} />
+                      {relatedFindings.map((finding) => (
+                        <button key={finding.id} type="button" onClick={() => onSelectAnomaly?.(finding)}>
+                          {finding.id} · Open details <ArrowUpRight size={11} />
                         </button>
                       ))}
                     </div>
