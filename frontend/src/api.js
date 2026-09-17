@@ -5,6 +5,23 @@ const PRODUCTION_API_BASE = 'https://nexus-ai-unef.onrender.com'
 const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || PRODUCTION_API_BASE)
 const SESSION_KEY = 'nexusai.session'
 
+function errorMessage(detail, fallback) {
+  if (typeof detail === 'string' && detail.trim()) return detail
+  if (Array.isArray(detail)) {
+    const messages = detail.map((item) => {
+      if (typeof item === 'string') return item
+      if (item && typeof item === 'object') {
+        const location = Array.isArray(item.loc) ? ` (${item.loc.join('.')})` : ''
+        return `${item.msg || item.message || JSON.stringify(item)}${location}`
+      }
+      return String(item)
+    }).filter(Boolean)
+    if (messages.length) return messages.join('; ')
+  }
+  if (detail && typeof detail === 'object') return detail.message || detail.error || JSON.stringify(detail)
+  return fallback
+}
+
 export function session() {
   try { return JSON.parse(window.localStorage.getItem(SESSION_KEY) || 'null') } catch { return null }
 }
@@ -21,7 +38,7 @@ async function request(path, options = {}) {
   })
   if (!response.ok) {
     const error = await response.json().catch(() => ({}))
-    throw new Error(error.detail || `Request failed (${response.status})`)
+    throw new Error(errorMessage(error.detail, `Request failed (${response.status})`))
   }
   return response.json()
 }
