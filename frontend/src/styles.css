@@ -2297,28 +2297,82 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 /* Armed reset confirmation */
 .reset-armed { border-color: rgba(224,128,143,.45) !important; color: #f4b8c2 !important; background: rgba(224,128,143,.12) !important; }
 
-/* Agent mesh "thinking" animation inside the chat */
-.agent-thinking { display: grid; gap: 2px; min-width: 250px; padding: 11px 13px 12px; border: 1px solid rgba(243, 227, 183,.13); border-radius: 3px 11px 11px 11px; background: rgba(136, 114, 55,.14); animation: fade-in .25s ease both; }
-.thinking-title { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; color: #eed593; font-size: 8px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
-.thinking-row { display: grid; grid-template-columns: 16px minmax(0,1fr) auto; align-items: center; gap: 8px; padding: 4px 0; transition: opacity .3s; }
-.thinking-row.pending { opacity: .32; }
-.thinking-row.done { opacity: .72; }
-.thinking-row strong { display: block; color: #f5f3ed; font-size: 9px; }
-.thinking-row small { display: block; margin-top: 1px; overflow: hidden; color: #9c96b6; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
-.thinking-orb { display: grid; place-items: center; width: 15px; height: 15px; border-radius: 50%; color: #1c1734; background: rgba(238, 213, 147,.14); }
-.thinking-row.done .thinking-orb { background: #8fd0b5; }
-.thinking-row.active .thinking-orb i { width: 6px; height: 6px; border-radius: 50%; background: #eed593; box-shadow: 0 0 9px #eed593; animation: pulse 1.2s infinite; }
-.thinking-row.pending .thinking-orb i { width: 5px; height: 5px; border-radius: 50%; background: #6f698e; }
+/* Agent mesh "thinking" animation inside the chat. It deliberately shares
+   the WALT palette so the full workspace and popup feel like one product. */
+.agent-thinking {
+  --thinking-accent: #C2FE06;
+  --thinking-cyan: #8CBEE6;
+  --thinking-ink: #F5FBFC;
+  --thinking-muted: rgba(255,255,255,.68);
+  --thinking-border: rgba(140,190,230,.34);
+  --thinking-surface: color-mix(in srgb, #8CBEE6 8%, #002733);
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  gap: 2px;
+  min-width: 250px;
+  overflow: hidden;
+  padding: 12px 14px 13px;
+  border: 1px solid var(--thinking-border);
+  border-radius: 3px 13px 13px 13px;
+  background: var(--thinking-surface);
+  box-shadow: 0 0 0 1px rgba(194,254,6,.04), 0 10px 26px rgba(0,39,51,.16), inset 0 1px rgba(255,255,255,.06);
+  animation: agent-thinking-in .32s cubic-bezier(.16,1,.3,1) both;
+}
+.agent-thinking::before {
+  position: absolute;
+  z-index: -1;
+  top: -30%;
+  bottom: -30%;
+  left: -35%;
+  width: 28%;
+  pointer-events: none;
+  content: '';
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--thinking-cyan) 23%, transparent), transparent);
+  filter: blur(4px);
+  transform: skewX(-18deg);
+  animation: agent-thinking-sweep 2.5s ease-in-out infinite;
+}
+.agent-thinking::after {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  pointer-events: none;
+  content: '';
+  opacity: .45;
+  background-image: linear-gradient(color-mix(in srgb, var(--thinking-cyan) 7%, transparent) 1px, transparent 1px), linear-gradient(90deg, color-mix(in srgb, var(--thinking-cyan) 7%, transparent) 1px, transparent 1px);
+  background-size: 18px 18px;
+  mask-image: linear-gradient(90deg, black, transparent 82%);
+}
+.thinking-title { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; color: var(--thinking-accent); font-size: 8px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
+.thinking-title svg { filter: drop-shadow(0 0 5px color-mix(in srgb, var(--thinking-accent) 75%, transparent)); animation: thinking-title-pulse 1.3s ease-in-out infinite; }
+.thinking-row { position: relative; display: grid; grid-template-columns: 17px minmax(0,1fr) auto; align-items: center; gap: 8px; padding: 5px 0; transition: opacity .3s, transform .3s; }
+.thinking-row.active { transform: translateX(2px); }
+.thinking-row.active::after { position: absolute; right: 0; bottom: 0; left: 25px; height: 1px; content: ''; background: linear-gradient(90deg, var(--thinking-accent), transparent); opacity: .65; animation: thinking-row-sheen 1.3s ease-in-out infinite; }
+.thinking-row.pending { opacity: .34; }
+.thinking-row.done { opacity: .78; }
+.thinking-row strong { display: block; color: var(--thinking-ink); font-size: 9px; }
+.thinking-row small { display: block; margin-top: 1px; overflow: hidden; color: var(--thinking-muted); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.thinking-orb { position: relative; display: grid; place-items: center; width: 16px; height: 16px; border: 1px solid color-mix(in srgb, var(--thinking-cyan) 50%, transparent); border-radius: 50%; color: #002733; background: color-mix(in srgb, var(--thinking-cyan) 18%, transparent); }
+.thinking-row.done .thinking-orb { border-color: var(--thinking-accent); background: color-mix(in srgb, var(--thinking-accent) 82%, #008C82); box-shadow: 0 0 10px color-mix(in srgb, var(--thinking-accent) 30%, transparent); }
+.thinking-row.active .thinking-orb { border-color: var(--thinking-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--thinking-accent) 10%, transparent), 0 0 13px color-mix(in srgb, var(--thinking-accent) 55%, transparent); animation: thinking-orb-ring 1.2s ease-in-out infinite; }
+.thinking-row.active .thinking-orb i { width: 6px; height: 6px; border-radius: 50%; background: var(--thinking-accent); box-shadow: 0 0 9px var(--thinking-accent); }
+.thinking-row.pending .thinking-orb i { width: 5px; height: 5px; border-radius: 50%; background: var(--thinking-muted); }
 .thinking-dots { display: inline-flex; gap: 3px; }
-.thinking-dots span { width: 3px; height: 3px; border-radius: 50%; background: #eed593; animation: thinking-dot 1s infinite; }
+.thinking-dots span { width: 3px; height: 3px; border-radius: 50%; background: var(--thinking-accent); box-shadow: 0 0 5px color-mix(in srgb, var(--thinking-accent) 70%, transparent); animation: thinking-dot 1s infinite; }
 .thinking-dots span:nth-child(2) { animation-delay: .18s; }
 .thinking-dots span:nth-child(3) { animation-delay: .36s; }
 @keyframes thinking-dot { 0%, 60%, 100% { opacity: .25; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-2px); } }
+@keyframes agent-thinking-in { from { opacity: 0; transform: translateY(7px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes agent-thinking-sweep { 0%, 20% { transform: translateX(0) skewX(-18deg); opacity: 0; } 45% { opacity: .9; } 75%, 100% { transform: translateX(520%) skewX(-18deg); opacity: 0; } }
+@keyframes thinking-title-pulse { 0%, 100% { transform: scale(.92); opacity: .65; } 50% { transform: scale(1.12); opacity: 1; } }
+@keyframes thinking-orb-ring { 0%, 100% { transform: scale(.95); } 50% { transform: scale(1.08); } }
+@keyframes thinking-row-sheen { 0%, 100% { opacity: .18; transform: scaleX(.45); transform-origin: left; } 50% { opacity: .75; transform: scaleX(1); transform-origin: left; } }
 
 /* Overheard agent chatter under the thinking steps */
-.thinking-chatter { display: flex; align-items: baseline; gap: 5px; flex-wrap: wrap; margin-top: 9px; padding: 7px 9px; border-left: 2px solid rgba(238, 213, 147,.4); border-radius: 0 7px 7px 0; background: rgba(238, 213, 147,.05); font-size: 8px; animation: fade-in .4s ease both; }
-.thinking-chatter b { color: #eed593; font-family: 'DM Mono', monospace; }
-.thinking-chatter span { color: #a59fbd; font-style: italic; }
+.thinking-chatter { display: flex; align-items: baseline; gap: 5px; flex-wrap: wrap; margin-top: 9px; padding: 7px 9px; border-left: 2px solid color-mix(in srgb, var(--thinking-accent) 55%, transparent); border-radius: 0 7px 7px 0; background: color-mix(in srgb, var(--thinking-accent) 7%, transparent); font-size: 8px; animation: fade-in .4s ease both; }
+.thinking-chatter b { color: var(--thinking-accent); font-family: 'DM Mono', monospace; }
+.thinking-chatter span { color: var(--thinking-muted); font-style: italic; }
 
 /* Roster orbs animate in sequence while a chat is in flight */
 .roster-agent.thinking .agent-orb i { animation: mesh-think 1.56s var(--mesh-delay, 0ms) infinite; }
@@ -5478,6 +5532,15 @@ body { overflow-x: hidden; }
 [data-theme="light"] .value-signal-ribbon { border-color: color-mix(in srgb,#E67364 20%,#002733 12%); background: color-mix(in srgb,#FAD2AA 9%,#FFFCF8); }
 
 /* Light Agent Workspace: warm reading surface with VW evidence accents. */
+[data-theme="light"] .agent-thinking {
+  --thinking-accent: #008C82;
+  --thinking-cyan: #E67364;
+  --thinking-ink: #002733;
+  --thinking-muted: rgba(0,39,51,.68);
+  --thinking-border: color-mix(in srgb,#008C82 28%,#FAD2AA);
+  --thinking-surface: color-mix(in srgb,#008C82 7%,#FFFCF8);
+  box-shadow: 0 0 0 1px rgba(0,140,130,.04), 0 10px 26px rgba(0,39,51,.08), inset 0 1px rgba(255,255,255,.8);
+}
 [data-theme="light"] .agent-roster { border-top: 3px solid #8CBEE6; background: #FFFCF8; }
 [data-theme="light"] .roster-agent { border-bottom-color: color-mix(in srgb,#002733 10%,#FAD2AA); }
 [data-theme="light"] .roster-agent strong,

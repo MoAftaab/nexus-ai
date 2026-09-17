@@ -27,6 +27,7 @@ export function WaltAssistant({
   capabilities,
   currentPage = 'command',
   dashboard,
+  architecture,
   onChatStream,
   onWaltConfirm,
   onWaltFeedback,
@@ -282,6 +283,7 @@ export function WaltAssistant({
       capabilities={capabilities}
       closing={panelClosing}
       contextCards={contextCards}
+      architecture={architecture}
       error={chat.error}
       input={chat.input}
       lastQuestion={chat.lastQuestion}

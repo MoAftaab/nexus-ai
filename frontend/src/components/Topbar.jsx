@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Activity, Bell, BellRing, CircleHelp, FileSearch, LayoutDashboard, LogOut, Menu, Moon, Radar, Scale, ScanLine, Search, Sparkles, Sun, X } from 'lucide-react'
+import { Activity, Bell, BellRing, FileSearch, LayoutDashboard, LogOut, Menu, Moon, Radar, Scale, ScanLine, Search, Sparkles, Sun, X } from 'lucide-react'
+
+const SEARCH_PAGES = [
+  { id: 'command', label: 'Command center', icon: LayoutDashboard, keywords: 'dashboard home overview kpi' },
+  { id: 'intelligence', label: 'Risk intelligence', icon: Radar, keywords: 'anomaly risk findings agent' },
+  { id: 'reconcile', label: 'Reconciliation', icon: Scale, keywords: 'inventory balance wms erp tms physical count' },
+  { id: 'documents', label: 'Document control', icon: FileSearch, keywords: 'upload inspect ppap vda batch' },
+  { id: 'alerts', label: 'Alert timeline', icon: Activity, keywords: 'deadline critical high medium low alert' },
+]
 
 export function Topbar({
   title,
@@ -7,7 +15,6 @@ export function Topbar({
   theme = 'light',
   onToggleTheme,
   onMenu,
-  onTour,
   onBell,
   onNotifications,
   onScan,
@@ -55,22 +62,13 @@ export function Topbar({
     return () => window.removeEventListener('keydown', handler)
   }, [])
 
-  // Pages searchable
-  const pages = [
-    { id: 'command', label: 'Command center', icon: LayoutDashboard, keywords: 'dashboard home overview kpi' },
-    { id: 'intelligence', label: 'Risk intelligence', icon: Radar, keywords: 'anomaly risk findings agent' },
-    { id: 'reconcile', label: 'Reconciliation', icon: Scale, keywords: 'inventory balance wms erp tms physical count' },
-    { id: 'documents', label: 'Document control', icon: FileSearch, keywords: 'upload inspect ppap vda batch' },
-    { id: 'alerts', label: 'Alert timeline', icon: Activity, keywords: 'deadline critical high medium low alert' },
-  ]
-
   const buildResults = useCallback(() => {
     if (!query.trim()) return []
     const q = query.toLowerCase()
     const results = []
 
     // Search pages
-    pages.forEach((p) => {
+    SEARCH_PAGES.forEach((p) => {
       if (p.label.toLowerCase().includes(q) || p.keywords.includes(q)) {
         results.push({ type: 'page', id: p.id, label: p.label, detail: 'Navigate to page', icon: '📄' })
       }

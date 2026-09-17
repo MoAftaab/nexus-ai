@@ -1,4 +1,4 @@
-"""Specialist GPT-5.4 mini agent collaboration with explicit handoffs.
+"""Specialist multi-provider agent collaboration with explicit handoffs.
 
 Architecture
 ------------
@@ -511,6 +511,12 @@ OPERATIONAL_TERMS = {
     "uom", "reorder", "safety", "stock", "sap", "erp", "wms", "tms", "gi", "overdue",
     "orphan", "blocked", "capacity", "overflow", "negative", "duplicate", "obsolete",
     "dispatcher", "controller", "steward", "buyer", "procurement",
+    # Dataset-level questions are operational questions too. Keep these here
+    # so follow-ups such as "show the whole dataset" reach the evidence engine
+    # instead of falling through to the generic unsupported response.
+    "data", "dataset", "records", "record", "overall", "summary", "summarize", "breakdown",
+    "count", "counts", "total", "all", "whole", "every", "list", "top", "biggest", "highest",
+    "lowest", "compare", "comparison", "trend", "trends", "analyze", "analysis", "category",
 }
 
 
@@ -562,12 +568,68 @@ def _scan_delta_response(store: OperationsStore) -> ChatResponse:
     )
 
 
+def _dataset_overview_response(store: OperationsStore) -> ChatResponse:
+    """Answer dataset-wide questions from the same live records as the dashboard."""
+    dashboard = store.dashboard()
+    active = [item for item in store.anomalies() if item.status != "resolved"]
+    severity_counts = dashboard.get("severity_counts") or {}
+    exposure = sum(item.impact for item in active)
+    dataset = dashboard.get("dataset") or {}
+    ranked = sorted(active, key=lambda item: (item.impact, item.confidence), reverse=True)
+    top_lines = "\n".join(
+        f"- **{item.id}** — {item.title} ({item.severity}; €{item.impact:,}; {item.time_to_impact})"
+        for item in ranked[:5]
+    ) or "- No open findings are currently recorded."
+    answer = (
+        "### Dataset overview\n"
+        f"The live board contains **{dataset.get('records', 0):,}** source records and **{len(active)}** open findings. "
+        f"Together, those open findings represent **€{exposure:,}** in modeled exposure.\n\n"
+        "**Severity breakdown**\n\n"
+        f"- Critical: {severity_counts.get('critical', 0)}\n"
+        f"- High: {severity_counts.get('high', 0)}\n"
+        f"- Medium: {severity_counts.get('medium', 0)}\n"
+        f"- Low: {severity_counts.get('low', 0)}\n\n"
+        "**Highest-impact open findings**\n\n"
+        f"{top_lines}\n\n"
+        f"The board is on scan **{dashboard.get('scan_count', 0)}**, last refreshed **{dashboard.get('last_scan')}**. "
+        "These are modeled risks, not proof that a control has already been applied. Any control still needs human approval."
+    )
+    return ChatResponse(
+        answer=answer,
+        source="operational_evidence",
+        cited_anomaly_ids=[item.id for item in ranked[:5]],
+        suggested_actions=[action.title for item in ranked[:3] for action in item.actions][:3],
+        agent_trace=[{"agent": name, "role": role, "status": "evidence-ready", "detail": "Summarized live dataset records"} for name, role in SPECIALISTS],
+        confidence="high",
+        source_refs=[item.id for item in ranked[:5]],
+    )
+
+
+def _anomaly_list_response(store: OperationsStore) -> ChatResponse:
+    """Give operators a compact, useful list when they ask for all findings."""
+    active = sorted((item for item in store.anomalies() if item.status != "resolved"), key=lambda item: item.impact, reverse=True)
+    lines = "\n".join(
+        f"- **{item.id}** — {item.title}; {item.severity} severity; **€{item.impact:,}** exposure; {item.time_to_impact}"
+        for item in active[:10]
+    ) or "- No open findings are currently recorded."
+    remaining = max(0, len(active) - 10)
+    suffix = f"\n\nShowing the 10 highest-impact findings; {remaining} more are open." if remaining else ""
+    return ChatResponse(
+        answer=f"### Open anomalies\n\n{lines}{suffix}\n\nAsk about any ID for the root cause, evidence, cascade, or safest human-approved control.",
+        source="operational_evidence",
+        cited_anomaly_ids=[item.id for item in active[:10]],
+        suggested_actions=[],
+        agent_trace=[{"agent": name, "role": role, "status": "evidence-ready", "detail": "Listed live open findings"} for name, role in SPECIALISTS],
+        confidence="high",
+        source_refs=[item.id for item in active[:10]],
+    )
+
+
 def _needs_deterministic_answer(request: ChatRequest) -> bool:
-    full_context = f"{request.message} {' '.join(turn.content for turn in request.history[-4:])}".strip()
     question = request.message.lower()
     return (
-        not _looks_operational(full_context)
-        or (bool(re.search(r"\bdocuments?\b", question)) and not request.workflow_context)
+        (bool(re.search(r"\bdocuments?\b", question)) and not request.workflow_context)
+        or bool(re.search(r"\b(?:whole|overall|entire|complete|full|all|dataset|records?|summary|overview|breakdown|by severity|how many|count|counts|total|trend|compare|comparison)\b", question))
         or bool(re.search(r"\b(?:what|which).{0,20}(?:changed|change).{0,20}(?:last|previous|prior)\b", question))
     )
 
@@ -588,6 +650,12 @@ def deterministic_mesh(request: ChatRequest, store: OperationsStore) -> ChatResp
     question = request.message.lower()
     if not _looks_operational(full_context):
         return _unsupported_response()
+    if re.search(r"\b(?:whole|overall|entire|complete|full|all|dataset|records?)\b", question) and re.search(r"\b(?:dataset|data|anomal(?:y|ies)|finding|records?|board|summary|overview|breakdown)\b", question):
+        if re.search(r"\b(?:list|show|all|every)\b.{0,24}\b(?:anomal(?:y|ies)|finding|findings)\b", question) or re.search(r"\b(?:anomal(?:y|ies)|finding|findings)\b.{0,24}\b(?:list|show|all|every)\b", question):
+            return _anomaly_list_response(store)
+        return _dataset_overview_response(store)
+    if re.search(r"\b(?:summary|overview|breakdown|by severity|how many|count|counts|total|trend|compare|comparison)\b", question) and not request.workflow_context:
+        return _dataset_overview_response(store)
     if re.search(r"\bdocuments?\b", question) and not request.workflow_context:
         return _document_response(store)
     if re.search(r"\b(?:what|which).{0,20}(?:changed|change).{0,20}(?:last|previous|prior)\b", question):

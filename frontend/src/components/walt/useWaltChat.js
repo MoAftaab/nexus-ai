@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 
 const initialMessage = {
   role: 'assistant',
-  content: 'Ask about live risks, your manager, your role and site scope, an approval owner, or tell me to prepare a reminder or escalation.',
+  content: 'Ask about live risks, any anomaly, the whole dataset, evidence behind a finding, your manager, your role and site scope, or an approval owner. I can also prepare a reminder or escalation when your role allows it.',
   source: 'operational_evidence',
 }
 

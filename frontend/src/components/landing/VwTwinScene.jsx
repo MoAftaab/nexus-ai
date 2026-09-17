@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import * as THREE from 'three'
 
 // Premium Volkswagen / Nexus AI Brand Palette
@@ -48,7 +48,6 @@ function createGlowSpriteTexture(innerColor = '#00e5c9', midColor = 'rgba(0, 140
  */
 export function VwTwinScene({ theme = 'light' }) {
   const hostRef = useRef(null)
-  const [interactiveHint, setInteractiveHint] = useState('Click to pulse twin')
 
   useEffect(() => {
     const host = hostRef.current
@@ -391,8 +390,6 @@ export function VwTwinScene({ theme = 'light' }) {
     const triggerPulse = () => {
       shockwaveState = { active: true, progress: 0, speed: 1.4 }
       coreLight.intensity = 5.5
-      setInteractiveHint('Scanning 72,900 twin signals…')
-      setTimeout(() => setInteractiveHint('Click to pulse twin'), 2200)
     }
 
     // Trigger pulse on host click
@@ -581,4 +578,3 @@ export function VwTwinScene({ theme = 'light' }) {
     <div ref={hostRef} className="landing-twin-scene" aria-hidden="true" />
   )
 }
-

@@ -1344,7 +1344,7 @@ All corrective actions require human approval before source data changes. The au
                 "flagged_over_50": sum(1 for _, score in scores if score >= .5),
             },
             "llm": {
-                "provider": "Direct OpenAI" if self._get_active_provider() == "openai" else "AgentRouter Claude" if self._get_active_provider() == "agentrouter" else "Deterministic Fallback",
+                "provider": {"codecraft": "CodeCraft", "openai": "Direct OpenAI", "ollama": "Ollama", "agentrouter": "AgentRouter Claude"}.get(self._get_active_provider(), "Deterministic Fallback"),
                 "model": self._get_active_model(),
                 "enabled": self._get_active_provider() != "deterministic",
                 "specialists": 5,
@@ -1367,7 +1367,7 @@ All corrective actions require human approval before source data changes. The au
             from app.services.llm_client import get_llm_client
             return get_llm_client(self.settings).active_provider
         except Exception:
-            return "openai" if self.settings.openai_api_key else "agentrouter" if self.settings.agentrouter_api_key else "deterministic"
+            return "codecraft" if self.settings.codecraft_api_key else "openai" if self.settings.openai_api_key else "ollama" if self.settings.ollama_enabled else "agentrouter" if self.settings.agentrouter_api_key else "deterministic"
 
     def _get_active_model(self) -> str:
         try:
@@ -1380,7 +1380,10 @@ All corrective actions require human approval before source data changes. The au
         return self.repository.audit()
 
     def agent_architecture(self) -> dict[str, object]:
-        return {"model": self._get_active_model(), "orchestrator": "Orchestrator Agent", "specialists": [
+        provider = self._get_active_provider()
+        dashboard = self.dashboard()
+        provider_label = {"codecraft": "CodeCraft", "openai": "Direct OpenAI", "ollama": "Ollama", "agentrouter": "AgentRouter Claude"}.get(provider, "Evidence mode")
+        return {"model": self._get_active_model(), "provider": provider, "provider_label": provider_label, "enabled": provider != "deterministic", "orchestrator": "WALT Coordinator", "specialists": [
             {"name": "Orchestrator Agent", "responsibility": "Assigns tasks to the right AI agents based on their capabilities and coordinates the overall workflow", "input": "Operator prompts + Specialist handoffs"},
             {"name": "Monitor Agent", "responsibility": "Monitors warehouse data and detects anomalies", "input": "Generated source records + selected ML score"},
             {"name": "Investigator Agent", "responsibility": "Identifies root causes by correlating data across systems", "input": "Verified findings + Markdown retrieval"},
@@ -1388,7 +1391,12 @@ All corrective actions require human approval before source data changes. The au
             {"name": "Approval Agent", "responsibility": "Routes critical actions to authorized managers using RBAC", "input": "Site/role policies + staged change drafts"},
             {"name": "Copilot Agent", "responsibility": "Answers warehouse queries and assists users in natural language", "input": "Natural language prompt + knowledge base context"},
             {"name": "Audit Agent", "responsibility": "Records every decision, approval, and action for compliance", "input": "Immutable audit events + operator signatures"},
-        ], "handoff_policy": "Specialists cannot mutate source data without human approval. The Orchestrator Agent coordinates agent handoffs, and the Approval Agent enforces RBAC governance."}
+        ], "tiers": [
+            {"id": "source", "label": "Live source twin", "status": "connected", "detail": f"{dashboard['dataset']['records']:,} operational records · {sum(dashboard['severity_counts'].values())} active findings"},
+            {"id": "specialists", "label": "Five specialists", "status": "ready", "detail": "Detection, linkage, cascade, impact, and control design"},
+            {"id": "orchestrator", "label": "WALT Coordinator", "status": "ready", "detail": f"Grounded synthesis via {provider_label} · {self._get_active_model()}"},
+            {"id": "governance", "label": "RBAC + audit", "status": "enforced", "detail": "Role-scoped escalation and human approval required"},
+        ], "dataset": {"status": "connected", "records": dashboard["dataset"]["records"], "active_findings": sum(dashboard["severity_counts"].values()), "scan_count": dashboard["scan_count"]}, "handoff_policy": "Specialists cannot mutate source data without human approval. The WALT Coordinator coordinates agent handoffs, and the Approval Agent enforces RBAC governance."}
 
     def hackathon_export(self) -> dict[str, object]:
         """Generate official hackathon verification and coverage report for judges."""

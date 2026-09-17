@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { CheckCircle2, FileCheck2, FileText, FileWarning, FolderUp, Sparkles, Trash2, UploadCloud, X } from 'lucide-react'
 
-export function Documents({ onInspect, onClearDocuments, onDeleteDocument, documentData }) {
+export function Documents({ onInspect, onClearDocuments, documentData }) {
   const inputRef = useRef(null)
   const [result, setResult] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -27,16 +27,6 @@ export function Documents({ onInspect, onClearDocuments, onDeleteDocument, docum
     setResult(null)
     if (onClearDocuments) {
       await onClearDocuments()
-    }
-  }
-
-  const handleDeleteItem = async (e, id) => {
-    e.stopPropagation()
-    if (onDeleteDocument) {
-      await onDeleteDocument(id)
-      if (result?.document_id === id) {
-        setResult(null)
-      }
     }
   }
 

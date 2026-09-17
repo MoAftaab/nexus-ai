@@ -29,7 +29,7 @@ const pageInfo = {
   command: ['Command center', 'Operational intelligence, one shift ahead'],
   intelligence: ['Risk intelligence', 'Prioritize the controls that protect the line'],
   reconcile: ['Reconciliation', 'Find the transaction where inventory drift began'],
-  agents: ['Agent workspace', 'Evidence-led multi-agent operations reasoning'],
+  agents: ['WALT copilot', 'Evidence-led multi-agent operations reasoning'],
   documents: ['Document control', 'Extract, cross-check and release with confidence'],
   alerts: ['Alert timeline', 'The deadlines that matter before they arrive'],
   outcomes: ['Outcomes', 'Every approved control and its measured value'],
@@ -48,7 +48,7 @@ export default function App() {
     try { return normalizeTheme(window.localStorage.getItem('nexusai.theme'), window.matchMedia('(prefers-color-scheme: dark)').matches) } catch { return 'light' }
   })
   const [dashboard, setDashboard] = useState(null); const [anomalies, setAnomalies] = useState([])
-  const [agentData, setAgentData] = useState(null); const [reconciliation, setReconciliation] = useState(null); const [documentData, setDocumentData] = useState(null); const [alerts, setAlerts] = useState([]); const [outcomeData, setOutcomeData] = useState(null)
+  const [agentData, setAgentData] = useState(null); const [agentArchitecture, setAgentArchitecture] = useState(null); const [reconciliation, setReconciliation] = useState(null); const [documentData, setDocumentData] = useState(null); const [alerts, setAlerts] = useState([]); const [outcomeData, setOutcomeData] = useState(null)
   const [loading, setLoading] = useState(true); const [error, setError] = useState(''); const [drawer, setDrawer] = useState(null); const [applying, setApplying] = useState(false); const [scanning, setScanning] = useState(false); const [toast, setToast] = useState(''); const [sidebarOpen, setSidebarOpen] = useState(false); const [sidebarCollapsed, setSidebarCollapsed] = useState(() => { try { return window.localStorage.getItem('nexusai.sidebarCollapsed') === 'true' } catch { return false } }); const [pulse, setPulse] = useState(null); const [tourOpen, setTourOpen] = useState(false); const [bellOpen, setBellOpen] = useState(false); const [notificationOpen, setNotificationOpen] = useState(false); const [workflowData, setWorkflowData] = useState(null); const [changeRequests, setChangeRequests] = useState([]); const [notifications, setNotifications] = useState([]); const [changeFocus, setChangeFocus] = useState(null)
   const [loadingHackathon, setLoadingHackathon] = useState(false)
 
@@ -68,8 +68,8 @@ export default function App() {
   const loadCore = useCallback(async () => {
     setLoading(true); setError('')
     try {
-      const [nextDashboard, nextAnomalies, nextAgents, nextReconciliation, nextDocuments, nextAlerts, nextOutcomes, nextWorkflow, nextChanges, nextNotifications] = await Promise.all([api.dashboard(), api.anomalies(), api.agents(), api.reconciliation(), api.documents(), api.alerts(), api.outcomes(), principal ? api.workflowSummary().catch(() => null) : Promise.resolve(null), principal ? api.changes().catch(() => ({ items: [] })) : Promise.resolve({ items: [] }), principal ? api.notifications().catch(() => ({ items: [] })) : Promise.resolve({ items: [] })])
-      setDashboard(nextDashboard); setAnomalies(nextAnomalies.items); setAgentData(nextAgents); setReconciliation(nextReconciliation); setDocumentData(nextDocuments); setAlerts(nextAlerts.items); setOutcomeData(nextOutcomes); setWorkflowData(nextWorkflow); setChangeRequests(nextChanges.items || []); setNotifications(nextNotifications.items || [])
+      const [nextDashboard, nextAnomalies, nextAgents, nextArchitecture, nextReconciliation, nextDocuments, nextAlerts, nextOutcomes, nextWorkflow, nextChanges, nextNotifications] = await Promise.all([api.dashboard(), api.anomalies(), api.agents(), api.agentArchitecture(), api.reconciliation(), api.documents(), api.alerts(), api.outcomes(), principal ? api.workflowSummary().catch(() => null) : Promise.resolve(null), principal ? api.changes().catch(() => ({ items: [] })) : Promise.resolve({ items: [] }), principal ? api.notifications().catch(() => ({ items: [] })) : Promise.resolve({ items: [] })])
+      setDashboard(nextDashboard); setAnomalies(nextAnomalies.items); setAgentData(nextAgents); setAgentArchitecture(nextArchitecture); setReconciliation(nextReconciliation); setDocumentData(nextDocuments); setAlerts(nextAlerts.items); setOutcomeData(nextOutcomes); setWorkflowData(nextWorkflow); setChangeRequests(nextChanges.items || []); setNotifications(nextNotifications.items || [])
     } catch (cause) { setError(`Warehouse Control Tower AI could not reach its operations API. ${cause.message}`) } finally { setLoading(false) }
   }, [principal])
 
@@ -100,6 +100,13 @@ export default function App() {
     return () => window.clearInterval(timer)
   }, [principal])
   useEffect(() => { loadCore() }, [loadCore])
+  useEffect(() => {
+    if (!principal) return undefined
+    const refreshArchitecture = () => { api.agentArchitecture().then(setAgentArchitecture).catch(() => null) }
+    refreshArchitecture()
+    const timer = window.setInterval(refreshArchitecture, 12000)
+    return () => window.clearInterval(timer)
+  }, [principal])
   useEffect(() => { const onHash = () => setPage(window.location.hash.slice(1) || 'home'); window.addEventListener('hashchange', onHash); return () => window.removeEventListener('hashchange', onHash) }, [])
   // Mobile sidebar: close on Escape and lock body scroll while open.
   useEffect(() => {
@@ -178,7 +185,7 @@ export default function App() {
     const props = { anomalies, outcomes: outcomeData, onNavigate: navigate, onSelectAnomaly: selectAnomaly }
     if (visiblePage === 'intelligence') return <RiskIntelligence anomalies={anomalies} onSelectAnomaly={selectAnomaly} />
     if (visiblePage === 'reconcile') return <Reconciliation data={reconciliation} onSelectAnomaly={selectAnomaly} />
-    if (visiblePage === 'agents') return <AgentWorkspace agents={agentData?.agents} communication={agentData?.communication} onChatStream={api.chatStream} onSelectAnomaly={selectAnomaly} />
+    if (visiblePage === 'agents') return <AgentWorkspace agents={agentData?.agents} communication={agentData?.communication} architecture={agentArchitecture} onChatStream={api.chatStream} onSelectAnomaly={selectAnomaly} />
     if (visiblePage === 'documents') return <Documents onInspect={inspectDocument} onClearDocuments={clearDocuments} onDeleteDocument={deleteDocument} documentData={documentData} />
     if (visiblePage === 'alerts') return <AlertsTimeline alerts={alerts} onSelectAnomaly={selectAnomaly} />
     if (visiblePage === 'outcomes') return <Outcomes outcomes={outcomeData} onSelectAnomaly={selectAnomaly} />
@@ -188,7 +195,7 @@ export default function App() {
     if (visiblePage === 'archive') return <AuditArchive />
     if (visiblePage === 'policy') return <AccessPolicyConsole />
     return <CommandCenter {...props} dashboard={dashboard} workflow={workflowData} onScan={runScan} scanning={scanning} />
-  }, [visiblePage, anomalies, dashboard, reconciliation, documentData, agentData, alerts, outcomeData, workflowData, inspectDocument, clearDocuments, deleteDocument, scanning, principal, changeFocus, loadCore])
+  }, [visiblePage, anomalies, dashboard, reconciliation, documentData, agentData, agentArchitecture, alerts, outcomeData, workflowData, inspectDocument, clearDocuments, deleteDocument, scanning, principal, changeFocus, loadCore])
   const [title, subtitle] = pageInfo[visiblePage] || pageInfo.command
   const openAlerts = anomalies.filter((item) => item.status !== 'resolved')
   const escalationCount = openAlerts.filter((item) => ['critical', 'high'].includes(item.severity)).length
@@ -237,6 +244,7 @@ export default function App() {
       capabilities={workflowData?.assistant_capabilities}
       currentPage={visiblePage}
       dashboard={dashboard}
+      architecture={agentArchitecture}
       onChatStream={api.chatStream}
       onWaltResolve={api.waltResolve}
       onWaltConfirm={api.confirmWaltAction}

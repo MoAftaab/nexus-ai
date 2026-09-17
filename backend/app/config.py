@@ -11,6 +11,21 @@ class Settings(BaseSettings):
     openai_base_url: str = "https://api.openai.com/v1"
     openai_model: str = "gpt-5.4-mini"
 
+    # CodeCraft exposes an OpenAI-compatible endpoint. Keep its credential
+    # separate from OPENAI_API_KEY so deployments can choose the gateway
+    # without changing the request contract used by the agent mesh.
+    codecraft_api_key: str | None = None
+    codecraft_base_url: str = "https://codecraftapi.com/v1"
+    codecraft_model: str = "gpt-5.6-luna"
+
+    # Ollama is an optional local fallback. The OpenAI-compatible /v1 route
+    # keeps streaming and chat payloads identical to the cloud providers.
+    # Opt in when an Ollama daemon is available; disabled by default so a
+    # workstation without Ollama stays responsive in deterministic evidence mode.
+    ollama_enabled: bool = False
+    ollama_base_url: str = "http://localhost:11434/v1"
+    ollama_model: str = "llama3.1:8b"
+
     agentrouter_api_key: str | None = None
     agentrouter_base_url: str = "https://agentrouter.org"
     agentrouter_model: str = "claude-opus-4-8"

@@ -731,6 +731,67 @@ body.walt-chat-active .sidebar-wrap {
 [data-theme='dark'] .walt-action-card dl > div { background: #002733; }
 [data-theme='dark'] .walt-action-card { box-shadow: 0 8px 24px rgba(0, 0, 0, .24), 0 0 16px rgba(0, 140, 130, .08); }
 
+/* The architecture strip is shared by the sidebar and the full WALT panel.
+   It uses the same DSB/neon palette as the assistant, while inheriting the
+   conversation text and border tokens when it is rendered inside the panel. */
+.walt-architecture {
+  --architecture-ink: var(--text-1, #FFFFFF);
+  --architecture-muted: var(--text-3, rgba(255,255,255,.68));
+  --architecture-border: var(--border, rgba(140,190,230,.34));
+  --architecture-accent: var(--walt-green, #008C82);
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 9px;
+  color: var(--architecture-ink);
+  border: 1px solid color-mix(in srgb, var(--architecture-accent) 32%, var(--architecture-border));
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--architecture-accent) 5%, var(--dsb-shallow, #002733));
+}
+.walt-architecture__head { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 7px; }
+.walt-architecture__title { display: flex; min-width: 0; align-items: center; gap: 6px; color: var(--architecture-accent); }
+.walt-architecture__title > span { display: grid; min-width: 0; gap: 2px; }
+.walt-architecture__title b { color: var(--architecture-ink); font: 800 8px/1.2 Manrope, sans-serif; }
+.walt-architecture__title small { overflow: hidden; color: var(--architecture-muted); font: 500 6.5px/1.2 'DM Mono', monospace; text-overflow: ellipsis; white-space: nowrap; }
+.walt-architecture__status { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 4px; color: var(--architecture-muted); font: 600 6px/1 'DM Mono', monospace; text-transform: uppercase; }
+.walt-architecture__status i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.walt-architecture__status.is-connected { color: var(--architecture-accent); }
+.walt-architecture__signal { display: inline-flex; align-items: flex-end; gap: 2px; height: 12px; margin-left: auto; }
+.walt-architecture__signal i { display: block; width: 2px; height: 5px; border-radius: 99px; background: var(--architecture-accent); animation: walt-architecture-signal .9s ease-in-out infinite alternate; }
+.walt-architecture__signal i:nth-child(2) { height: 9px; animation-delay: -.3s; }
+.walt-architecture__signal i:nth-child(3) { height: 7px; animation-delay: -.6s; }
+.walt-architecture__tiers { display: grid; gap: 0; }
+.walt-architecture__step { display: grid; grid-template-columns: 1fr; justify-items: stretch; }
+.walt-architecture__tier { display: grid; grid-template-columns: 23px minmax(0, 1fr) auto; align-items: center; gap: 6px; min-width: 0; padding: 6px 7px; border: 1px solid var(--architecture-border); border-radius: 8px; background: color-mix(in srgb, var(--architecture-accent) 3%, var(--dsb-shallow, #002733)); }
+.walt-architecture__tier::before { width: 2px; height: 60%; border-radius: 99px; background: var(--architecture-accent); content: ''; opacity: .55; }
+.walt-architecture__tier > * { grid-row: 1; }
+.walt-architecture__tier::before { grid-column: 1; }
+.walt-architecture__tier .walt-architecture__icon { grid-column: 1; margin-left: 5px; }
+.walt-architecture__tier .walt-architecture__copy { grid-column: 2; }
+.walt-architecture__tier em { grid-column: 3; }
+.walt-architecture__tier.is-live { animation: walt-architecture-live 2.7s ease-in-out var(--architecture-delay) infinite; }
+.walt-architecture__icon { display: grid; width: 23px; height: 23px; place-items: center; border-radius: 7px; color: var(--architecture-accent); background: color-mix(in srgb, var(--architecture-accent) 13%, transparent); }
+.walt-architecture__copy { display: grid; min-width: 0; gap: 2px; }
+.walt-architecture__copy b { overflow: hidden; color: var(--architecture-ink); font: 800 7.5px/1.2 Manrope, sans-serif; text-overflow: ellipsis; white-space: nowrap; }
+.walt-architecture__copy small { overflow: hidden; color: var(--architecture-muted); font: 500 6px/1.25 'DM Mono', monospace; text-overflow: ellipsis; white-space: nowrap; }
+.walt-architecture__tier em { color: var(--architecture-accent); font: 600 5.5px/1 'DM Mono', monospace; font-style: normal; text-transform: uppercase; }
+.walt-architecture__connector { position: relative; display: block; width: 1px; height: 10px; margin: 0 auto; background: linear-gradient(var(--architecture-border), var(--architecture-accent)); }
+.walt-architecture__connector i { position: absolute; top: -1px; left: -2px; width: 5px; height: 5px; border-radius: 50%; background: var(--architecture-accent); box-shadow: 0 0 7px color-mix(in srgb, var(--architecture-accent) 75%, transparent); animation: walt-architecture-flow 1.5s linear infinite; }
+.walt-architecture__footer { display: flex; flex-wrap: wrap; gap: 6px 10px; padding-top: 3px; color: var(--architecture-muted); font: 500 6px/1.2 'DM Mono', monospace; }
+.walt-architecture__footer span { display: inline-flex; align-items: center; gap: 4px; }
+.walt-architecture.is-compact { gap: 6px; margin-top: 8px; padding: 7px; border-radius: 9px; }
+.walt-architecture.is-compact .walt-architecture__head { gap: 4px; }
+.walt-architecture.is-compact .walt-architecture__title b { font-size: 7px; }
+.walt-architecture.is-compact .walt-architecture__title small { font-size: 5.5px; }
+.walt-architecture.is-compact .walt-architecture__tier { grid-template-columns: 18px minmax(0, 1fr); padding: 4px 5px; }
+.walt-architecture.is-compact .walt-architecture__icon { width: 18px; height: 18px; }
+.walt-architecture.is-compact .walt-architecture__copy b { font-size: 6.5px; }
+.walt-architecture.is-compact .walt-architecture__copy small { font-size: 5.3px; }
+.walt-architecture.is-compact .walt-architecture__connector { height: 6px; }
+@keyframes walt-architecture-live { 0%, 100% { border-color: var(--architecture-border); box-shadow: 0 0 0 rgba(0,140,130,0); } 45% { border-color: color-mix(in srgb, var(--architecture-accent) 75%, var(--architecture-border)); box-shadow: 0 0 13px color-mix(in srgb, var(--architecture-accent) 13%, transparent); } }
+@keyframes walt-architecture-flow { from { opacity: 0; transform: translateY(-2px); } 35%, 70% { opacity: 1; } to { opacity: 0; transform: translateY(8px); } }
+@keyframes walt-architecture-signal { from { opacity: .35; transform: scaleY(.7); } to { opacity: 1; transform: scaleY(1.15); } }
+
 @media (max-width: 520px) {
   .walt-action-card dl { grid-template-columns: 1fr; }
   .walt-action-controls { grid-template-columns: 1fr; }
@@ -831,6 +892,9 @@ body.walt-chat-active .sidebar-wrap {
   .walt-agent-chip,
   .walt-agent-handoff__line i,
   .walt-agent-handoff .is-synthesizing svg,
+  .walt-architecture__tier,
+  .walt-architecture__connector i,
+  .walt-architecture__signal i,
   .walt-hello,
   .walt-panel { animation: none !important; transition: none !important; }
 }

@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { ArrowUp, ChevronDown, LockKeyhole, MessageSquarePlus, Minus, RefreshCw, Route, ShieldCheck, Sparkles, X } from 'lucide-react'
 import { WaltMascot } from './WaltMascot'
 import { WaltMessage } from './WaltMessage'
+import { WaltArchitecture } from './WaltArchitecture'
 
 const fallbackQuestions = [
   'What needs attention first?',
@@ -29,6 +30,7 @@ const activityCopy = {
 
 export function WaltPanel({
   capabilities,
+  architecture,
   closing,
   contextCards,
   error,
@@ -90,6 +92,11 @@ export function WaltPanel({
       {riskCount > 0 && <b>{riskCount} priority</b>}
     </div>
 
+    {contextCards?.length > 0 && <div className="walt-context-cards" aria-label="Current operational context">
+      {contextCards.map((card) => <article key={card.label} data-tone={card.tone}><span>{card.label}</span><strong>{card.value}</strong></article>)}
+    </div>}
+    <WaltArchitecture architecture={architecture} compact />
+
 
     {capabilities && <details className="walt-capability-guide">
       <summary><span><Sparkles size={13} />What WALT can do for {capabilities.role_label}</span><ChevronDown size={13} /></summary>
@@ -105,6 +112,7 @@ export function WaltPanel({
       {messages.map((message, index) => <WaltMessage
         key={message.id || `${message.role}-${index}`}
         message={message}
+        architecture={architecture}
         loading={loading && index === messages.length - 1}
         onChoice={(prompt) => onSend(prompt)}
         onConfirmAction={onConfirmAction}
@@ -128,7 +136,7 @@ export function WaltPanel({
         onFocus={onInputFocus}
         onBlur={onInputBlur}
         onChange={(event) => onInput(event.target.value)}
-        placeholder="Ask WALT about current operations…"
+        placeholder="Ask WALT about operations, the dataset, or an anomaly…"
         aria-label="Ask WALT"
       />
       {loading

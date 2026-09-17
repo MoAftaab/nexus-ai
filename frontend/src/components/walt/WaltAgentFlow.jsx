@@ -14,20 +14,21 @@ function specialistTrace(trace = []) {
   return SPECIALISTS.map((specialist) => ({ ...specialist, ...returned.get(specialist.agent) }))
 }
 
-export function WaltAgentFlow({ trace = [], streaming = false }) {
+export function WaltAgentFlow({ trace = [], streaming = false, architecture }) {
   const specialists = specialistTrace(trace)
   const hasTrace = trace.length > 0
   const knowledge = trace.find((item) => item.agent === 'Knowledge')
   const orchestrator = trace.find((item) => item.agent === 'Control Tower')
   const completed = specialists.filter((item) => item.status && item.status !== 'degraded').length
-  const modelName = trace
-    .map((item) => item.detail?.match(/GPT-[\w.]+(?:\s+\w+)?/)?.[0])
+  const modelName = architecture?.model || trace
+    .map((item) => item.detail?.match(/(?:gpt|llama|claude)[\w.:-]*/i)?.[0])
     .find(Boolean)
+  const providerName = architecture?.provider_label ? `${architecture.provider_label} · ` : ''
 
   return <details className="walt-agent-flow" open={streaming}>
     <summary>
       <span className="walt-agent-flow__icon"><Network size={12} /></span>
-      <span><b>Multi-agent analysis</b><small>{hasTrace ? `${modelName || 'Evidence mode'} · ${completed}/5 specialist handoffs` : '5 specialists consulting in parallel'}</small></span>
+      <span><b>Multi-agent analysis</b><small>{hasTrace ? `${providerName}${modelName || 'Evidence mode'} · ${completed}/5 specialist handoffs` : `${providerName || ''}5 specialists consulting in parallel`}</small></span>
       <ChevronDown className="walt-agent-flow__chevron" size={13} />
     </summary>
     <div className="walt-agent-flow__body">

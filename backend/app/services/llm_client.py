@@ -1,8 +1,9 @@
 """Unified LLM Client with multi-provider failover.
 
 Architecture:
-- Primary Provider: Direct OpenAI (api.openai.com) with separate OPENAI_API_KEY
-- Fallback Provider: AgentRouter Claude (agentrouter.org) with AGENTROUTER_API_KEY & Stainless/Claude headers
+- Primary Provider: CodeCraft OpenAI-compatible gateway with CODECRAFT_API_KEY
+- Local Fallback: Ollama OpenAI-compatible endpoint for offline demos
+- Optional Providers: Direct OpenAI and AgentRouter Claude
 - Startup Health Probe: Automatically verifies 200 OK and establishes the active default model
 - Runtime Failover: Seamlessly switches providers if the active model encounters quota or transient errors
 """
@@ -36,9 +37,44 @@ AGENTROUTER_HEADERS = {
 class LLMClient:
     def __init__(self, settings: Settings):
         self.settings = settings
-        self.active_provider: Literal["openai", "agentrouter", "deterministic"] = "deterministic"
-        self.active_model: str = "claude-opus-4-8"
+        self.active_provider: Literal["codecraft", "openai", "ollama", "agentrouter", "deterministic"] = "deterministic"
+        self.active_model: str = "nexus_deterministic"
         self.probe_status: dict[str, dict[str, object]] = {}
+
+    def _compatible_headers(self, key: str) -> dict[str, str]:
+        return {"Content-Type": "application/json", "Authorization": f"Bearer {key}"}
+
+    def _provider_config(self, provider: str) -> tuple[str, str, str] | None:
+        configs = {
+            "codecraft": (self.settings.codecraft_base_url, self.settings.codecraft_model, self.settings.codecraft_api_key or ""),
+            "openai": (self.settings.openai_base_url, self.settings.openai_model, self.settings.openai_api_key or ""),
+            "ollama": (self.settings.ollama_base_url, self.settings.ollama_model, "ollama"),
+        }
+        config = configs.get(provider)
+        if not config or (provider == "ollama" and not self.settings.ollama_enabled):
+            return None
+        if provider != "ollama" and not config[2]:
+            return None
+        return config
+
+    async def _probe_compatible(self, provider: str) -> tuple[bool, int, str]:
+        config = self._provider_config(provider)
+        if not config:
+            return False, 0, f"{provider.title()} is not configured"
+        base_url, model, key = config
+        payload = {"model": model, "messages": [{"role": "user", "content": "ping"}], "max_tokens": 5}
+        try:
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                response = await client.post(f"{base_url.rstrip('/')}/chat/completions", json=payload, headers=self._compatible_headers(key))
+            if response.status_code == 200:
+                return True, 200, "OK"
+            try:
+                message = response.json().get("error", {}).get("message", response.text[:100])
+            except Exception:
+                message = response.text[:100]
+            return False, response.status_code, message
+        except Exception as exc:
+            return False, 0, str(exc)
 
     def _agentrouter_headers(self) -> dict[str, str]:
         key = self.settings.agentrouter_api_key or ""
@@ -57,29 +93,15 @@ class LLMClient:
 
     async def probe_openai(self) -> tuple[bool, int, str]:
         """Test Direct OpenAI API health."""
-        if not self.settings.openai_api_key:
-            return False, 0, "No OpenAI API key configured"
-        url = f"{self.settings.openai_base_url.rstrip('/')}/chat/completions"
-        payload = {
-            "model": self.settings.openai_model,
-            "messages": [{"role": "user", "content": "ping"}],
-            "max_tokens": 5,
-        }
-        for attempt in range(2):
-            try:
-                async with httpx.AsyncClient(timeout=20.0) as client:
-                    resp = await client.post(url, json=payload, headers=self._openai_headers())
-                    if resp.status_code == 200:
-                        return True, 200, "OK"
-                    try:
-                        err_msg = resp.json().get("error", {}).get("message", resp.text[:100])
-                    except Exception:
-                        err_msg = resp.text[:100]
-                    return False, resp.status_code, err_msg
-            except Exception as exc:
-                if attempt == 1:
-                    return False, 0, str(exc)
-        return False, 0, "OpenAI probe failed after retries"
+        return await self._probe_compatible("openai")
+
+    async def probe_codecraft(self) -> tuple[bool, int, str]:
+        """Test the requested CodeCraft OpenAI-compatible gateway."""
+        return await self._probe_compatible("codecraft")
+
+    async def probe_ollama(self) -> tuple[bool, int, str]:
+        """Test the local Ollama OpenAI-compatible endpoint."""
+        return await self._probe_compatible("ollama")
 
     async def probe_agentrouter(self) -> tuple[bool, int, str]:
         """Test AgentRouter Claude API health."""
@@ -108,11 +130,16 @@ class LLMClient:
         return False, 0, "AgentRouter probe failed after retries"
 
     async def probe_and_configure_default(self) -> str:
-        """Startup health probe: test OpenAI gpt-5.4-mini, fall back to AgentRouter Claude."""
+        """Select CodeCraft, then Ollama, then optional cloud providers."""
         print("=" * 70)
         print("[NexusAI Startup Probe] Checking AI model health...")
 
-        # 1. Probe Direct OpenAI
+        # 1. Probe CodeCraft first so the requested model is the primary path.
+        codecraft_ok, codecraft_code, codecraft_msg = await self.probe_codecraft()
+        self.probe_status["codecraft"] = {"model": self.settings.codecraft_model, "status_code": codecraft_code, "ok": codecraft_ok, "message": codecraft_msg}
+        print(f"  [1] CodeCraft ({self.settings.codecraft_model}) -> {'200 OK' if codecraft_ok else f'HTTP {codecraft_code}'}: {codecraft_msg[:60]}")
+
+        # 2. Probe Direct OpenAI
         openai_ok, openai_code, openai_msg = await self.probe_openai()
         self.probe_status["openai"] = {
             "model": self.settings.openai_model,
@@ -121,9 +148,14 @@ class LLMClient:
             "message": openai_msg,
         }
         status_tag = "200 OK" if openai_ok else f"HTTP {openai_code}"
-        print(f"  [1] Direct OpenAI ({self.settings.openai_model}) -> {status_tag}: {openai_msg[:60]}")
+        print(f"  [2] Direct OpenAI ({self.settings.openai_model}) -> {status_tag}: {openai_msg[:60]}")
 
-        # 2. Probe AgentRouter Claude
+        # 3. Probe local Ollama before the remote secondary provider.
+        ollama_ok, ollama_code, ollama_msg = await self.probe_ollama()
+        self.probe_status["ollama"] = {"model": self.settings.ollama_model, "status_code": ollama_code, "ok": ollama_ok, "message": ollama_msg}
+        print(f"  [3] Ollama ({self.settings.ollama_model}) -> {'200 OK' if ollama_ok else f'HTTP {ollama_code}'}: {ollama_msg[:60]}")
+
+        # 4. Probe AgentRouter Claude
         ar_ok, ar_code, ar_msg = await self.probe_agentrouter()
         self.probe_status["agentrouter"] = {
             "model": self.settings.agentrouter_model,
@@ -132,10 +164,18 @@ class LLMClient:
             "message": ar_msg,
         }
         status_tag_ar = "200 OK" if ar_ok else f"HTTP {ar_code}"
-        print(f"  [2] AgentRouter Claude ({self.settings.agentrouter_model}) -> {status_tag_ar}: {ar_msg[:60]}")
+        print(f"  [4] AgentRouter Claude ({self.settings.agentrouter_model}) -> {status_tag_ar}: {ar_msg[:60]}")
 
         # Selection logic
-        if openai_ok:
+        if codecraft_ok:
+            self.active_provider = "codecraft"
+            self.active_model = self.settings.codecraft_model
+            print(f"  >>> DEFAULT MODEL SELECTED: CodeCraft ({self.active_model}) [ACTIVE]")
+        elif ollama_ok:
+            self.active_provider = "ollama"
+            self.active_model = self.settings.ollama_model
+            print(f"  >>> DEFAULT MODEL SELECTED: Ollama ({self.active_model}) [ACTIVE - LOCAL FALLBACK]")
+        elif openai_ok:
             self.active_provider = "openai"
             self.active_model = self.settings.openai_model
             print(f"  >>> DEFAULT MODEL SELECTED: Direct OpenAI ({self.active_model}) [ACTIVE]")
@@ -170,12 +210,20 @@ class LLMClient:
             blocks = [b.get("text", "") for b in data.get("content", []) if b.get("type") == "text"]
             return "\n".join(blocks).strip()
 
-    async def _generate_openai(
-        self, instructions: str, input_text: str, temperature: float = 0.0, max_tokens: int = 2048
+    async def _generate_compatible(
+        self,
+        instructions: str,
+        input_text: str,
+        temperature: float = 0.0,
+        max_tokens: int = 2048,
+        provider: str = "openai",
     ) -> str:
-        url = f"{self.settings.openai_base_url.rstrip('/')}/chat/completions"
+        config = self._provider_config(provider)
+        if not config:
+            raise RuntimeError(f"{provider.title()} is not configured")
+        base_url, model, key = config
         payload = {
-            "model": self.settings.openai_model,
+            "model": model,
             "messages": [
                 {"role": "system", "content": instructions},
                 {"role": "user", "content": input_text},
@@ -184,33 +232,37 @@ class LLMClient:
             "max_tokens": max_tokens,
         }
         async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.post(url, json=payload, headers=self._openai_headers())
+            resp = await client.post(f"{base_url.rstrip('/')}/chat/completions", json=payload, headers=self._compatible_headers(key))
             if resp.status_code != 200:
-                raise RuntimeError(f"OpenAI HTTP {resp.status_code}: {resp.text[:200]}")
+                raise RuntimeError(f"{provider.title()} HTTP {resp.status_code}: {resp.text[:200]}")
             data = resp.json()
             return data["choices"][0]["message"]["content"].strip()
+
+    async def _generate_openai(self, instructions: str, input_text: str, temperature: float = 0.0, max_tokens: int = 2048) -> str:
+        return await self._generate_compatible(instructions, input_text, temperature, max_tokens, "openai")
 
     async def generate(
         self, instructions: str, input_text: str, temperature: float = 0.0, max_tokens: int = 2048
     ) -> tuple[str, str]:
         """Generate response with automatic provider failover. Returns (text, source_provider)."""
-        # Primary attempt based on active provider
-        if self.active_provider == "openai":
+        providers = [self.active_provider, "ollama", "codecraft", "openai", "agentrouter"]
+        seen = set()
+        failures = []
+        for provider in providers:
+            if provider in seen or provider == "deterministic":
+                continue
+            seen.add(provider)
             try:
-                text = await self._generate_openai(instructions, input_text, temperature, max_tokens)
-                return text, "openai"
+                if provider == "agentrouter":
+                    text = await self._generate_agentrouter(instructions, input_text, temperature, max_tokens)
+                else:
+                    text = await self._generate_compatible(instructions, input_text, temperature, max_tokens, provider)
+                self._mark_active(provider)
+                return text, provider
             except Exception as exc:
-                logger.warning("Direct OpenAI generation failed: %s. Falling back to AgentRouter Claude.", exc)
-                text = await self._generate_agentrouter(instructions, input_text, temperature, max_tokens)
-                return text, "agentrouter"
-        else:
-            try:
-                text = await self._generate_agentrouter(instructions, input_text, temperature, max_tokens)
-                return text, "agentrouter"
-            except Exception as exc:
-                logger.warning("AgentRouter Claude generation failed: %s. Attempting Direct OpenAI.", exc)
-                text = await self._generate_openai(instructions, input_text, temperature, max_tokens)
-                return text, "openai"
+                failures.append(f"{provider}: {exc}")
+                logger.warning("%s generation failed: %s", provider, exc)
+        raise RuntimeError("All configured LLM providers failed: " + " | ".join(failures))
 
     async def _stream_agentrouter(
         self, instructions: str, input_text: str, temperature: float = 0.0, max_tokens: int = 2048
@@ -246,12 +298,15 @@ class LLMClient:
                         except Exception:
                             continue
 
-    async def _stream_openai(
-        self, instructions: str, input_text: str, temperature: float = 0.0, max_tokens: int = 2048
+    async def _stream_compatible(
+        self, instructions: str, input_text: str, temperature: float = 0.0, max_tokens: int = 2048, provider: str = "openai"
     ) -> AsyncIterator[str]:
-        url = f"{self.settings.openai_base_url.rstrip('/')}/chat/completions"
+        config = self._provider_config(provider)
+        if not config:
+            raise RuntimeError(f"{provider.title()} is not configured")
+        base_url, model, key = config
         payload = {
-            "model": self.settings.openai_model,
+            "model": model,
             "messages": [
                 {"role": "system", "content": instructions},
                 {"role": "user", "content": input_text},
@@ -261,10 +316,10 @@ class LLMClient:
             "stream": True,
         }
         async with httpx.AsyncClient(timeout=90.0) as client:
-            async with client.stream("POST", url, headers=self._openai_headers(), json=payload) as response:
+            async with client.stream("POST", f"{base_url.rstrip('/')}/chat/completions", headers=self._compatible_headers(key), json=payload) as response:
                 if response.status_code != 200:
                     err_body = await response.aread()
-                    raise RuntimeError(f"OpenAI stream HTTP {response.status_code}: {err_body.decode('utf-8', errors='replace')[:200]}")
+                    raise RuntimeError(f"{provider.title()} stream HTTP {response.status_code}: {err_body.decode('utf-8', errors='replace')[:200]}")
                 async for line in response.aiter_lines():
                     if not line:
                         continue
@@ -282,28 +337,43 @@ class LLMClient:
                         except Exception:
                             continue
 
+    async def _stream_openai(self, instructions: str, input_text: str, temperature: float = 0.0, max_tokens: int = 2048) -> AsyncIterator[str]:
+        async for token in self._stream_compatible(instructions, input_text, temperature, max_tokens, "openai"):
+            yield token
+
+    def _mark_active(self, provider: str) -> None:
+        """Keep health/architecture responses aligned with runtime failover."""
+        self.active_provider = provider  # type: ignore[assignment]
+        if provider == "codecraft":
+            self.active_model = self.settings.codecraft_model
+        elif provider == "ollama":
+            self.active_model = self.settings.ollama_model
+        elif provider == "openai":
+            self.active_model = self.settings.openai_model
+        elif provider == "agentrouter":
+            self.active_model = self.settings.agentrouter_model
+
     async def stream(
         self, instructions: str, input_text: str, temperature: float = 0.0, max_tokens: int = 2048
     ) -> AsyncIterator[str]:
         """Stream response with provider failover."""
-        if self.active_provider == "openai":
+        providers = [self.active_provider, "ollama", "codecraft", "openai", "agentrouter"]
+        seen = set()
+        failures = []
+        for provider in providers:
+            if provider in seen or provider == "deterministic":
+                continue
+            seen.add(provider)
             try:
-                async for token in self._stream_openai(instructions, input_text, temperature, max_tokens):
+                stream = self._stream_agentrouter(instructions, input_text, temperature, max_tokens) if provider == "agentrouter" else self._stream_compatible(instructions, input_text, temperature, max_tokens, provider)
+                async for token in stream:
                     yield token
+                self._mark_active(provider)
                 return
             except Exception as exc:
-                logger.warning("OpenAI streaming failed: %s. Falling back to AgentRouter Claude.", exc)
-                async for token in self._stream_agentrouter(instructions, input_text, temperature, max_tokens):
-                    yield token
-        else:
-            try:
-                async for token in self._stream_agentrouter(instructions, input_text, temperature, max_tokens):
-                    yield token
-                return
-            except Exception as exc:
-                logger.warning("AgentRouter streaming failed: %s. Falling back to Direct OpenAI.", exc)
-                async for token in self._stream_openai(instructions, input_text, temperature, max_tokens):
-                    yield token
+                failures.append(f"{provider}: {exc}")
+                logger.warning("%s streaming failed: %s", provider, exc)
+        raise RuntimeError("All configured streaming providers failed: " + " | ".join(failures))
 
     async def vision(
         self, image_bytes: bytes, filename: str, instructions: str

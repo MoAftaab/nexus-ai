@@ -59,7 +59,7 @@ async def extract_with_openai_vision(settings: Settings, filename: str, preview:
         return text
     from app.services.llm_client import get_llm_client
     llm_client = get_llm_client(settings)
-    if llm_client.active_provider == "deterministic" and not (settings.openai_api_key or settings.agentrouter_api_key):
+    if llm_client.active_provider == "deterministic" and not (settings.openai_api_key or settings.codecraft_api_key or settings.agentrouter_api_key or settings.ollama_enabled):
         return text
     try:
         preview_bytes = preview.read_bytes()

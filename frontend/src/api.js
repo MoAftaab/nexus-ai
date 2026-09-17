@@ -69,6 +69,7 @@ export const api = {
   savePolicy: (payload) => request('/api/admin/policy', { method: 'PUT', body: JSON.stringify(payload) }),
   dashboard: () => request('/api/dashboard'),
   agents: () => request('/api/agents'),
+  agentArchitecture: () => request('/api/agents/architecture'),
   anomalies: (params = {}) => request(`/api/anomalies?${new URLSearchParams(Object.entries(params).filter(([, value]) => value && value !== 'all'))}`),
   anomaly: (id) => request(`/api/anomalies/${id}`),
   graph: (id) => request(`/api/cascades${id ? `?anomaly_id=${id}` : ''}`),
