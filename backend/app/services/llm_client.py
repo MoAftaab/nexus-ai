@@ -136,8 +136,8 @@ class LLMClient:
 
         # 1. Probe CodeCraft first so the requested model is the primary path.
         codecraft_ok, codecraft_code, codecraft_msg = await self.probe_codecraft()
-        self.probe_status["codecraft"] = {"model": self.settings.codecraft_model, "status_code": codecraft_code, "ok": codecraft_ok, "message": codecraft_msg}
-        print(f"  [1] CodeCraft ({self.settings.codecraft_model}) -> {'200 OK' if codecraft_ok else f'HTTP {codecraft_code}'}: {codecraft_msg[:60]}")
+        msg_cc = codecraft_msg.encode("ascii", errors="replace").decode("ascii")
+        print(f"  [1] CodeCraft ({self.settings.codecraft_model}) -> {'200 OK' if codecraft_ok else f'HTTP {codecraft_code}'}: {msg_cc[:60]}")
 
         # 2. Probe Direct OpenAI
         openai_ok, openai_code, openai_msg = await self.probe_openai()
@@ -148,12 +148,14 @@ class LLMClient:
             "message": openai_msg,
         }
         status_tag = "200 OK" if openai_ok else f"HTTP {openai_code}"
-        print(f"  [2] Direct OpenAI ({self.settings.openai_model}) -> {status_tag}: {openai_msg[:60]}")
+        msg_oa = openai_msg.encode("ascii", errors="replace").decode("ascii")
+        print(f"  [2] Direct OpenAI ({self.settings.openai_model}) -> {status_tag}: {msg_oa[:60]}")
 
         # 3. Probe local Ollama before the remote secondary provider.
         ollama_ok, ollama_code, ollama_msg = await self.probe_ollama()
         self.probe_status["ollama"] = {"model": self.settings.ollama_model, "status_code": ollama_code, "ok": ollama_ok, "message": ollama_msg}
-        print(f"  [3] Ollama ({self.settings.ollama_model}) -> {'200 OK' if ollama_ok else f'HTTP {ollama_code}'}: {ollama_msg[:60]}")
+        msg_ol = ollama_msg.encode("ascii", errors="replace").decode("ascii")
+        print(f"  [3] Ollama ({self.settings.ollama_model}) -> {'200 OK' if ollama_ok else f'HTTP {ollama_code}'}: {msg_ol[:60]}")
 
         # 4. Probe AgentRouter Claude
         ar_ok, ar_code, ar_msg = await self.probe_agentrouter()
@@ -164,7 +166,8 @@ class LLMClient:
             "message": ar_msg,
         }
         status_tag_ar = "200 OK" if ar_ok else f"HTTP {ar_code}"
-        print(f"  [4] AgentRouter Claude ({self.settings.agentrouter_model}) -> {status_tag_ar}: {ar_msg[:60]}")
+        msg_ar = ar_msg.encode("ascii", errors="replace").decode("ascii")
+        print(f"  [4] AgentRouter Claude ({self.settings.agentrouter_model}) -> {status_tag_ar}: {msg_ar[:60]}")
 
         # Selection logic
         if codecraft_ok:
