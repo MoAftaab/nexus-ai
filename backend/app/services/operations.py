@@ -3,11 +3,15 @@ from __future__ import annotations
 from collections import Counter
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
+import os
+import logging
 import hashlib
 from threading import RLock
 import random
 import uuid
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 from app.db import ApprovalStepModel, ChangeRequestModel, ContainerModel, DetailRequestModel, DispatchScheduleModel, InboundOrderModel, InventoryPositionModel, MasterSkuModel, OutboundOrderModel, Repository, SupplierModel, WorkflowActionModel, WorkforceLogModel
 from app.config import Settings
@@ -240,6 +244,11 @@ class OperationsStore:
         self._hackathon_path = None
         self._hackathon_wb_data = None
         self._hackathon_stats = {}
+        if self.settings.demo_mode and not os.environ.get("PYTEST_CURRENT_TEST"):
+            try:
+                self.load_hackathon()
+            except Exception as exc:
+                raise RuntimeError(f"Default Hackathon dataset could not load: {exc}") from exc
 
     def _restore_ml_selection(self, model_metadata: dict) -> ModelSelection:
         """Rebuild the persisted model selection; retrain only when scores are absent.
@@ -824,6 +833,11 @@ class OperationsStore:
             self._hackathon_path = None
             self._hackathon_wb_data = None
             self._hackathon_stats = {}
+            if self.settings.demo_mode and not os.environ.get("PYTEST_CURRENT_TEST"):
+                try:
+                    self.load_hackathon()
+                except Exception as exc:
+                    raise RuntimeError(f"Default Hackathon dataset could not reload: {exc}") from exc
             self.repository.add_audit(str(uuid.uuid4()), "demo_reset", "Demo controller", {"seed": self._dataset.seed, "findings": len(self._anomalies)})
             return {"reset": True, "seed": self._dataset.seed, "findings": len(self._anomalies), "exposure": sum(item.impact for item in self._anomalies)}
 
@@ -1156,6 +1170,11 @@ All corrective actions require human approval before source data changes. The au
             # inherit the old "applied" flags.
             previous_actions = {action.id: action.status for anomaly in self._anomalies if anomaly.status != "resolved" for action in anomaly.actions}
             resolved = [anomaly for anomaly in self._anomalies if anomaly.status == "resolved"]
+            if not self._hackathon_loaded or not self._hackathon_wb_data:
+                try:
+                    self.load_hackathon()
+                except Exception:
+                    pass
             if self._hackathon_loaded and self._hackathon_wb_data:
                 findings_by_cat = run_all_detectors(self._hackathon_wb_data)
                 detected = convert_findings_to_anomalies(findings_by_cat)
@@ -1188,13 +1207,145 @@ All corrective actions require human approval before source data changes. The au
                 "started_at": self._last_scan.isoformat(),
             }
 
+    def _hackathon_reconciliation_rows(self) -> list[dict[str, object]]:
+        """Build the reconciliation workbench directly from Inventory_Stock.
+
+        The official workbook has no fabricated WMS/ERP/physical-count columns.
+        This view therefore exposes the fields that actually exist in the SAP
+        sheet and compares available stock with the material's reorder point.
+        Each row carries its source record and the closest finding so the UI can
+        open the exact workbook-backed context after a click.
+        """
+        workbook = self._hackathon_wb_data or {}
+        inventory = workbook.get("inventory_stock", [])
+        materials = {
+            (str(row.get("material") or ""), str(row.get("plant") or "")): row
+            for row in workbook.get("material_master", [])
+        }
+        bins = workbook.get("warehouse_bin", [])
+        findings = self.anomalies()
+        rows: list[dict[str, object]] = []
+
+        def serial(value):
+            return value.isoformat() if hasattr(value, "isoformat") else value
+
+        for record in inventory:
+            material_id = str(record.get("material") or "Unknown material")
+            plant = str(record.get("plant") or "Unknown plant")
+            storage_location = str(record.get("storage_location") or "Unassigned")
+            material = materials.get((material_id, plant)) or next(
+                (item for item in workbook.get("material_master", []) if item.get("material") == material_id),
+                {},
+            )
+            bin_record = next(
+                (
+                    item for item in bins
+                    if item.get("assigned_material") == material_id and item.get("plant") == plant
+                ),
+                None,
+            )
+            on_hand = _as_float(record.get("qty_on_hand"))
+            blocked = _as_float(record.get("blocked_qty"))
+            in_transit = _as_float(record.get("in_transit_qty"))
+            available = on_hand - blocked
+            reorder_point = _as_float(material.get("reorder_point"))
+            variance = int(round(available - reorder_point))
+            last_movement = record.get("last_movement_date")
+            stale_days = 0
+            if last_movement:
+                try:
+                    stale_days = max(0, (datetime(2026, 9, 5).date() - last_movement).days)
+                except TypeError:
+                    stale_days = 0
+            if on_hand < 0 or variance < 0:
+                risk = "critical"
+            elif blocked > 0 or stale_days > 365:
+                risk = "watch"
+            else:
+                risk = "healthy"
+            related = next(
+                (
+                    item for item in findings
+                    if item.status != "resolved"
+                    and (item.sku == material_id or material_id in item.title)
+                ),
+                None,
+            )
+            source_record_id = f"Inventory_Stock/{material_id}/{plant}/{storage_location}"
+            rows.append({
+                "id": source_record_id,
+                "source_table": "Inventory_Stock",
+                "source_record_id": source_record_id,
+                "material": material_id,
+                "sku": material_id,
+                "description": material.get("description") or "No material description",
+                "plant": plant,
+                "warehouse": plant,
+                "storage_location": storage_location,
+                "bin": bin_record.get("bin") if bin_record else storage_location,
+                "uom": record.get("uom") or material.get("base_uom") or "—",
+                "on_hand": on_hand,
+                "blocked": blocked,
+                "in_transit": in_transit,
+                "available": available,
+                "reorder_point": reorder_point,
+                "variance": variance,
+                "risk": risk,
+                "stale_days": stale_days,
+                "related_anomaly_id": related.id if related else None,
+                "related_anomaly_title": related.title if related else None,
+                "source_record": {key: serial(value) for key, value in record.items()},
+                "material_record": {key: serial(value) for key, value in material.items()},
+            })
+
+        risk_order = {"critical": 0, "watch": 1, "healthy": 2}
+        return sorted(
+            rows,
+            key=lambda row: (
+                risk_order.get(str(row["risk"]), 3),
+                -abs(int(row["variance"])),
+                str(row["material"]),
+            ),
+        )[:8]
+
     def reconciliation(self) -> dict[str, object]:
+        if self._hackathon_loaded and self._hackathon_wb_data:
+            rows = self._hackathon_reconciliation_rows()
+            source_label = "SAP Hackathon · Inventory_Stock"
+            last_count = max(
+                (record.get("last_movement_date") for record in self._hackathon_wb_data.get("inventory_stock", []) if record.get("last_movement_date")),
+                default=None,
+            )
+            reconciliation_anomaly = next(
+                (item for item in self.anomalies() if item.type in {"Inventory Ledger Discrepancy", "Inventory Shortage", "Inventory Allocation"}),
+                None,
+            )
+            divergent = next((row for row in rows if row["risk"] == "critical"), rows[0] if rows else None)
+            summary = {
+                "review_items": sum(1 for row in rows if row["variance"]),
+                "total_variance": sum(abs(int(row["variance"])) for row in rows),
+                "last_count": last_count.isoformat() if last_count else "2026-09-05",
+                "anomaly_id": reconciliation_anomaly.id if reconciliation_anomaly else (divergent or {}).get("related_anomaly_id"),
+                "source": source_label,
+                "records_available": len(self._hackathon_wb_data.get("inventory_stock", [])),
+            }
+            return {
+                "rows": rows,
+                "summary": summary,
+                "timeline": [
+                    {"time": "2026-09-03", "event": f"Inventory_Stock record loaded for {divergent['material']}" if divergent else "No inventory record selected", "system": "SAP Inventory_Stock", "state": "good"},
+                    {"time": "2026-09-03", "event": f"Available stock is {abs(int(divergent['variance'])) if divergent else 0} units below reorder point", "system": "SAP MRP", "state": "critical"},
+                    {"time": "2026-09-05", "event": f"Blocked quantity recorded as {divergent['blocked'] if divergent else 0:g} units", "system": "SAP Stock Status", "state": "watch"},
+                    {"time": "2026-09-05", "event": f"On-hand quantity is {divergent['on_hand'] if divergent else 0:g} units", "system": "SAP MARD", "state": "good"},
+                ],
+            }
+
         rows = build_reconciliation_rows(self._dataset)
         reconciliation_anomaly = next((item for item in self.anomalies() if item.type == "Inventory reconciliation"), None)
         divergent = next((row for row in rows if row["risk"] == "critical"), rows[0] if rows else None)
         return {
             "rows": rows,
-            "summary": {"review_items": sum(1 for row in rows if row["variance"]), "total_variance": sum(abs(int(row["variance"])) for row in rows), "last_count": max((record["last_count"] for record in self._dataset.inventory), default=self._dataset.generated_at).strftime("%H:%M UTC"), "anomaly_id": reconciliation_anomaly.id if reconciliation_anomaly else None},
+            "summary": {"review_items": sum(1 for row in rows if row["variance"]), "total_variance": sum(abs(int(row["variance"])) for row in rows), "last_count": max((record["last_count"] for record in self._dataset.inventory), default=self._dataset.generated_at).strftime("%H:%M UTC"), "anomaly_id": reconciliation_anomaly.id if reconciliation_anomaly else None, "source": "Synthetic Twin"},
             "timeline": [
                 {"time": (self._dataset.generated_at - timedelta(minutes=91)).strftime("%H:%M"), "event": f"Receipt movement recorded for {divergent['sku']}" if divergent else "No divergence record", "system": "WMS", "state": "good"},
                 {"time": (self._dataset.generated_at - timedelta(minutes=90)).strftime("%H:%M"), "event": f"ERP balance diverged from source by {abs(int(divergent['variance'])) if divergent else 0} units", "system": "ERP", "state": "critical"},

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Activity, Bell, BellRing, FileSearch, LayoutDashboard, LogOut, Menu, Moon, Radar, Scale, ScanLine, Search, Sparkles, Sun, X } from 'lucide-react'
+import { Activity, Bell, BellRing, FileSearch, LayoutDashboard, LogOut, Menu, Moon, Radar, Radio, Scale, ScanLine, Search, Sun, X } from 'lucide-react'
 
 const SEARCH_PAGES = [
   { id: 'command', label: 'Command center', icon: LayoutDashboard, keywords: 'dashboard home overview kpi' },
@@ -19,8 +19,6 @@ export function Topbar({
   onNotifications,
   onScan,
   scanning = false,
-  onLoadHackathon = null,
-  loadingHackathon = false,
   escalationCount = 0,
   notificationCount = 0,
   principal = null,
@@ -200,26 +198,15 @@ export function Topbar({
           )}
         </div>
 
-        {onLoadHackathon && (
-          <button
-            className="topbar-scan-button"
-            onClick={onLoadHackathon}
-            disabled={loadingHackathon || scanning}
-            style={{
-              background: 'var(--card-bg, #fff)',
-              border: '1px solid var(--border-color, #cbd5e1)',
-              color: 'var(--text-primary, #0f172a)',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-            }}
-            aria-label="Load Hackathon Dataset"
-            title="Load SAP Hackathon Dataset"
-          >
-            <Sparkles size={13} style={{ color: 'var(--accent, #3b82f6)' }} />
-            <span>{loadingHackathon ? 'Loading…' : '⚡ Hackathon Data'}</span>
-          </button>
-        )}
+        <div
+          className="topbar-live-data"
+          title="Autonomous operations telemetry stream is live"
+          role="status"
+          aria-label="Live data connected"
+        >
+          <Radio size={11} />
+          <span>Live Data</span>
+        </div>
 
         <button
           className="topbar-scan-button primary-button"

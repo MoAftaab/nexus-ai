@@ -1,4 +1,8 @@
-const API_BASE = import.meta.env.VITE_API_URL || ''
+// Local development must use the Vite proxy so restarting the local FastAPI
+// process actually changes the data shown in the browser. Production can still
+// point at a separately deployed API with VITE_API_URL.
+const PRODUCTION_API_BASE = 'https://nexus-ai-unef.onrender.com'
+const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || PRODUCTION_API_BASE)
 const SESSION_KEY = 'nexusai.session'
 
 export function session() {
@@ -11,6 +15,7 @@ async function request(path, options = {}) {
   const stored = session()
   const auth = stored?.session_token ? { Authorization: `Bearer ${stored.session_token}` } : {}
   const response = await fetch(`${API_BASE}${path}`, {
+    cache: 'no-store',
     headers: options.body instanceof FormData ? { ...auth, ...options.headers } : { 'Content-Type': 'application/json', ...auth, ...options.headers },
     ...options,
   })

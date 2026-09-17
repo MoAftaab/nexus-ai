@@ -6738,7 +6738,30 @@ button.decision-rail-step:hover { border-color: var(--brand-vivid, #008C82); bac
 .topbar-scan-button:disabled { cursor: wait; opacity: .72; }
 @media (max-width: 760px) {
   .topbar-scan-button { padding: 0 8px; }
-.topbar-scan-button span { display: none; }
+  .topbar-scan-button span { display: none; }
+}
+.topbar-live-data {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 0 9px;
+  border-radius: 6px;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.22);
+  color: var(--green, #10b981);
+  font: 800 9px var(--font-data, monospace);
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  user-select: none;
+  white-space: nowrap;
+}
+.topbar-live-data svg {
+  color: var(--green, #10b981);
+}
+@media (max-width: 640px) {
+  .topbar-live-data span { display: none; }
+  .topbar-live-data { padding: 0 6px; }
 }
 .outcomes-page .leaderboard-total { min-width: 190px; border-color: var(--border); background: var(--surface-raised); box-shadow: var(--shadow-card); }
 .outcomes-page .leaderboard-total span { color: var(--text-muted); }
@@ -7508,6 +7531,49 @@ button.decision-rail-step:hover { border-color: var(--brand-vivid, #008C82); bac
 
 .reconciliation-page .reconcile-detail .primary-button { margin-top: auto; }
 
+.recon-data-warning {
+  flex: 0 0 auto;
+  margin: 0 0 6px;
+  padding: 7px 10px;
+  border: 1px solid color-mix(in srgb, var(--orange) 42%, var(--border));
+  border-radius: 7px;
+  color: var(--orange);
+  background: color-mix(in srgb, var(--orange) 9%, var(--surface));
+  font: 700 8.5px/1.35 var(--font-data);
+}
+
+.recon-source-record {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 9px;
+  border: 1px solid color-mix(in srgb, var(--vg) 25%, var(--border));
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--vg) 5%, var(--surface));
+}
+.recon-source-record span {
+  color: var(--text-muted);
+  font: 700 7.5px var(--font-data);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.recon-source-record code {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-1);
+  font: 800 8px var(--font-data);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A field-level change is a compact audit diff, not a flex filler panel. */
+.change-control-page .change-detail-body { justify-content: flex-start; }
+.change-control-page .data-preview { flex: 0 0 auto; justify-content: flex-start; }
+.change-control-page .preview-table-wrap { flex: 0 0 auto; max-height: 220px; overflow: auto; }
+.change-control-page .preview-table { height: auto; }
+.change-control-page .preview-table td { padding: 6px 10px; }
+
 [data-theme="dark"] .recon-variance-chip { color: var(--vg); }
 [data-theme="dark"] .balance-bars-head,
 [data-theme="dark"] .recon-verdict { background: rgba(0, 19, 25, .4); }
@@ -7680,3 +7746,29 @@ button.decision-rail-step:hover { border-color: var(--brand-vivid, #008C82); bac
 .risk-row, .risk-row *,
 .queue-item, .queue-item *,
 .doc-field-item, .doc-field-item * { overflow-wrap: anywhere; min-width: 0; }
+
+/* ── Topbar Live Data Badge Button */
+button.topbar-live-data,
+.topbar-live-data {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: 6px;
+  background: rgba(0, 140, 130, 0.12);
+  border: 1px solid rgba(0, 140, 130, 0.35);
+  color: #008C82;
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease, transform 0.14s ease;
+}
+button.topbar-live-data:hover,
+.topbar-live-data:hover {
+  background: rgba(0, 140, 130, 0.22);
+  border-color: rgba(0, 140, 130, 0.6);
+  transform: translateY(-1px);
+}

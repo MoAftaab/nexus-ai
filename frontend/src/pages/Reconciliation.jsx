@@ -1,39 +1,48 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CheckCircle2, DatabaseZap, Search, Sparkles } from 'lucide-react'
+import { ArrowUpRight, CheckCircle2, DatabaseZap, Search, Sparkles } from 'lucide-react'
 
 export function Reconciliation({ data, onSelectAnomaly }) {
   const [selected, setSelected] = useState(data?.rows?.[0]?.id)
   const [filter, setFilter] = useState('')
+  const isHackathon = data?.summary?.source === 'SAP Hackathon · Inventory_Stock'
+  const sourceRows = useMemo(() => (isHackathon ? (data?.rows || []) : []), [data?.rows, isHackathon])
 
   useEffect(() => {
-    if (!selected && data?.rows?.[0]?.id) setSelected(data.rows[0].id)
-  }, [data, selected])
+    if (sourceRows[0]?.id && !sourceRows.some((row) => row.id === selected)) setSelected(sourceRows[0].id)
+  }, [sourceRows, selected])
 
-  const active = data?.rows?.find((row) => row.id === selected) || data?.rows?.[0]
-  const controlId = data?.summary?.anomaly_id
-  const scale = active ? Math.max(active.wms, active.erp, active.tms, active.physical, 1) : 1
+  const active = sourceRows.find((row) => row.id === selected) || sourceRows[0]
+  const controlId = active?.related_anomaly_id || data?.summary?.anomaly_id
+  const scale = active ? Math.max(active.on_hand, active.blocked, active.in_transit, active.available, active.reorder_point, 1) : 1
   const bar = (value) => `${Math.min(100, (value / scale) * 100)}%`
 
-  // Every source measured against the physical count — the only balance that is
-  // ground truth. The deltas are what an operator actually reads off this panel.
+  // These are the actual fields in the Hackathon Inventory_Stock sheet. The
+  // available/reorder comparison is the operational signal shown as variance.
   const sources = useMemo(() => (active ? [
-    { label: 'WMS', value: active.wms, delta: active.wms - active.physical },
-    { label: 'ERP', value: active.erp, delta: active.erp - active.physical },
-    { label: 'TMS', value: active.tms, delta: active.tms - active.physical },
-    { label: 'Count', value: active.physical, delta: 0 },
+    { label: 'On hand', value: active.on_hand, delta: active.on_hand - active.reorder_point },
+    { label: 'Available', value: active.available, delta: active.variance },
+    { label: 'In transit', value: active.in_transit, delta: active.in_transit },
+    { label: 'Reorder', value: active.reorder_point, delta: 0 },
   ] : []), [active])
   const agreeing = sources.filter((source) => source.delta === 0).length
 
-  const filteredRows = (data?.rows || []).filter(
+  const filteredRows = sourceRows.filter(
     (r) =>
       !filter ||
-      r.sku?.toLowerCase().includes(filter.toLowerCase()) ||
+      r.material?.toLowerCase().includes(filter.toLowerCase()) ||
       r.description?.toLowerCase().includes(filter.toLowerCase()) ||
-      r.bin?.toLowerCase().includes(filter.toLowerCase())
+      r.bin?.toLowerCase().includes(filter.toLowerCase()) ||
+      r.storage_location?.toLowerCase().includes(filter.toLowerCase()) ||
+      r.source_record_id?.toLowerCase().includes(filter.toLowerCase())
   )
 
   return (
     <div className="page reconciliation-page">
+      {data?.rows?.length > 0 && !isHackathon && (
+        <div className="recon-data-warning" role="alert">
+          This backend is returning the legacy synthetic reconciliation shape. Refresh after the Hackathon backend deployment completes.
+        </div>
+      )}
       <div className="recon-viewport-grid">
         {/* Left Column (50%): Balance table on top, Divergence Timeline below */}
         <div className="recon-left-col">
@@ -42,7 +51,7 @@ export function Reconciliation({ data, onSelectAnomaly }) {
             <div className="reconcile-toolbar">
               <div>
                 <h3>Balance comparison</h3>
-                <span>Last physical count: {data?.summary?.last_count || 'Today'}</span>
+                <span>{data?.summary?.source || 'SAP Inventory_Stock'} · last movement: {data?.summary?.last_count || 'Unknown'}</span>
               </div>
               <div className="reconcile-toolbar-right">
                 <span className="recon-variance-chip">
@@ -60,38 +69,43 @@ export function Reconciliation({ data, onSelectAnomaly }) {
             </div>
 
             <div className="inventory-head">
-              <span>Part & location</span>
-              <span>WMS</span>
-              <span>ERP</span>
-              <span>TMS</span>
-              <span>Physical</span>
-              <span>Variance</span>
+              <span>Material & location</span>
+              <span>On hand</span>
+              <span>Blocked</span>
+              <span>In transit</span>
+              <span>Available</span>
+              <span>Signal</span>
               <span />
             </div>
 
             {/* Fixed at 8 rows by the API, so they share the height instead of scrolling. */}
             <div className="inventory-rows-scroll">
-              {filteredRows.map((row) => (
+              {isHackathon && filteredRows.map((row) => (
                 <button
                   className={`inventory-row ${selected === row.id ? 'selected' : ''}`}
                   key={row.id}
                   onClick={() => setSelected(row.id)}
+                  aria-label={`Open source record ${row.source_record_id}`}
                 >
                   <span>
-                    <strong>{row.sku}</strong>
-                    <small>{row.description} · {row.bin}</small>
+                    <strong>{row.material}</strong>
+                    <small>{row.description} · Plant {row.plant} · {row.storage_location}</small>
                   </span>
-                  <b>{row.wms}</b>
-                  <b>{row.erp}</b>
-                  <b>{row.tms}</b>
-                  <b>{row.physical}</b>
+                  <b>{row.on_hand}</b>
+                  <b>{row.blocked}</b>
+                  <b>{row.in_transit}</b>
+                  <b>{row.available}</b>
                   <em className={row.risk}>
-                    {row.variance === 0 ? 'Balanced' : `${row.variance > 0 ? '+' : ''}${row.variance}`}
+                    {row.risk === 'healthy' ? 'Healthy' : row.variance < 0 ? `${row.variance} vs reorder` : 'Watch'}
                   </em>
+                  <ArrowUpRight size={14} />
                 </button>
               ))}
-              {filteredRows.length === 0 && (
-                <p className="recon-empty">No part matches “{filter}”.</p>
+              {isHackathon && filteredRows.length === 0 && (
+                <p className="recon-empty">No material matches “{filter}”.</p>
+              )}
+              {!isHackathon && (
+                <p className="recon-empty">Waiting for the official Hackathon Inventory_Stock feed.</p>
               )}
             </div>
           </article>
@@ -101,45 +115,37 @@ export function Reconciliation({ data, onSelectAnomaly }) {
             <div className="section-title">
               <div>
                 <span className="eyebrow"><CheckCircle2 size={12} /> Transaction archaeology</span>
-                <h3>Divergence timeline {active ? `· ${active.sku}` : ''}</h3>
+                <h3>Inventory signal timeline {active ? `· ${active.material}` : ''}</h3>
               </div>
             </div>
             <div className="timeline-row">
               {active ? (() => {
                 const events = []
-                const hasDrift = active.variance !== 0
-                // WMS event
+                const hasDrift = active.variance < 0
                 events.push({
-                  time: 'WMS',
-                  event: hasDrift && active.wms !== active.physical
-                    ? `WMS reports ${active.wms} units — ${active.wms > active.physical ? '+' : ''}${active.wms - active.physical} vs physical`
-                    : `WMS reports ${active.wms} units — matches physical`,
-                  system: 'WMS',
-                  state: active.wms !== active.physical ? 'critical' : 'good',
+                  time: 'Stock',
+                  event: `Inventory_Stock reports ${active.on_hand} ${active.uom} on hand at ${active.storage_location}`,
+                  system: 'SAP Inventory_Stock',
+                  state: active.on_hand < 0 ? 'critical' : 'good',
                 })
-                // ERP event
                 events.push({
-                  time: 'ERP',
-                  event: hasDrift && active.erp !== active.physical
-                    ? `ERP balance shows ${active.erp} units — ${active.erp > active.physical ? '+' : ''}${active.erp - active.physical} divergence`
-                    : `ERP balance ${active.erp} units — synchronized`,
-                  system: 'ERP',
-                  state: active.erp !== active.physical ? 'critical' : 'good',
+                  time: 'MRP',
+                  event: hasDrift
+                    ? `Available stock is ${Math.abs(active.variance)} ${active.uom} below the ${active.reorder_point} reorder point`
+                    : `Available stock is at or above the ${active.reorder_point} reorder point`,
+                  system: 'SAP Material Master',
+                  state: hasDrift ? 'critical' : 'good',
                 })
-                // TMS event
                 events.push({
-                  time: 'TMS',
-                  event: hasDrift && active.tms !== active.physical
-                    ? `TMS inherited ${active.tms} units — ${active.tms > active.physical ? '+' : ''}${active.tms - active.physical} gap`
-                    : `TMS shows ${active.tms} units — aligned`,
-                  system: 'TMS',
-                  state: active.tms !== active.physical ? 'watch' : 'good',
+                  time: 'Status',
+                  event: `${active.blocked} ${active.uom} blocked · ${active.in_transit} ${active.uom} in transit`,
+                  system: 'SAP Stock Status',
+                  state: active.blocked > 0 ? 'watch' : 'good',
                 })
-                // Physical count event
                 events.push({
-                  time: 'Count',
-                  event: `Physical count verified at ${active.physical} units`,
-                  system: 'Physical',
+                  time: 'Source',
+                  event: `Exact source record selected: ${active.source_record_id}`,
+                  system: 'Hackathon workbook',
                   state: 'good',
                 })
                 return events.map((event) => (
@@ -167,21 +173,21 @@ export function Reconciliation({ data, onSelectAnomaly }) {
                   <div className="recon-detail-title-row">
                     <div>
                       <span className="eyebrow"><Sparkles size={13} /> Reconciliation agent</span>
-                      <h3>{active.sku}: source of truth</h3>
+                      <h3>{active.material}: source record</h3>
                     </div>
-                    <small className="recon-sku-bin">{active.description} · {active.bin}</small>
+                    <small className="recon-sku-bin">{active.description} · Plant {active.plant} · {active.storage_location}</small>
                   </div>
                 </div>
 
                 <div className="truth-value">
-                  <strong>{active.physical}</strong>
-                  <span>verified units</span>
+                  <strong>{active.available}</strong>
+                  <span>available {active.uom}</span>
                   <em className={active.risk}>
-                    {active.variance === 0 ? 'In balance' : `${active.variance > 0 ? '+' : ''}${active.variance} drift`}
+                    {active.variance < 0 ? `${active.variance} vs reorder` : 'At reorder target'}
                   </em>
                 </div>
 
-                <p className="root-cause-text">{active.root}</p>
+                <p className="root-cause-text">{active.related_anomaly_title || 'Inventory position selected from the official Hackathon workbook.'}</p>
 
                 <div className="balance-bars">
                   <div className="balance-bars-head">
@@ -211,9 +217,13 @@ export function Reconciliation({ data, onSelectAnomaly }) {
                       className="primary-button recon-action-btn"
                       onClick={() => onSelectAnomaly?.({ id: controlId })}
                     >
-                      Open reconciliation control
+                      Open linked finding
                     </button>
                   )}
+                </div>
+                <div className="recon-source-record">
+                  <span>Exact source record</span>
+                  <code>{active.source_table} · {active.source_record_id}</code>
                 </div>
               </>
             ) : null}
@@ -223,10 +233,10 @@ export function Reconciliation({ data, onSelectAnomaly }) {
           <section className="sap-workbench card-surface">
             <div className="section-title">
               <div>
-                <span className="eyebrow"><DatabaseZap size={12} /> SAP ERP / MARD</span>
-                <h3>Storage-location truth & controls</h3>
+                <span className="eyebrow"><DatabaseZap size={12} /> Hackathon SAP source</span>
+                <h3>Inventory_Stock record</h3>
               </div>
-              <span className="sap-plant">Plant {active?.plant || '1400'} · {active?.warehouse || 'WH-01'}</span>
+              <span className="sap-plant">Plant {active?.plant || '—'} · {active?.storage_location || '—'}</span>
             </div>
 
             <div className="sap-matrix">
@@ -234,18 +244,16 @@ export function Reconciliation({ data, onSelectAnomaly }) {
               <div className="sap-matrix-row sap-row-top">
                 <div className="sap-cell">
                   <span>Storage location</span>
-                  <strong>{active?.storagelocation || active?.bin || 'F6M1'}</strong>
+                  <strong>{active?.storage_location || '—'}</strong>
                 </div>
                 <div className="sap-cell">
-                  <span>Fiscal period</span>
-                  <strong className={active?.fiscalyearofcurrentperiod && active.fiscalyearofcurrentperiod < 2026 ? 'sap-alert' : ''}>
-                    FY{active?.fiscalyearofcurrentperiod || '2026'} / {active?.currentperiod || '08'}
-                  </strong>
+                  <span>Batch / unit</span>
+                  <strong>{active?.source_record?.batch || 'No batch'} · {active?.uom || '—'}</strong>
                 </div>
                 <div className="sap-cell">
-                  <span>Blocked stock</span>
-                  <strong className={active?.blockedstock > 0 ? 'sap-warn' : 'sap-ok'}>
-                    {active?.blockedstock || 0} ST
+                  <span>Blocked quantity</span>
+                  <strong className={active?.blocked > 0 ? 'sap-warn' : 'sap-ok'}>
+                    {active?.blocked || 0} {active?.uom || 'EA'}
                   </strong>
                 </div>
               </div>
@@ -253,15 +261,15 @@ export function Reconciliation({ data, onSelectAnomaly }) {
               {/* Row 2: Status & Synchronization Verification (2 items) */}
               <div className="sap-matrix-row sap-row-bottom">
                 <div className="sap-cell">
-                  <span>Stock integrity</span>
-                  <strong className={active?.deletionflag === 'X' ? 'sap-alert' : 'sap-ok'}>
-                    {active?.deletionflag === 'X' ? 'Flagged for Deletion' : 'Normal / Unblocked'}
+                  <span>Last movement</span>
+                  <strong className="sap-ok">
+                    {active?.source_record?.last_movement_date || 'Not recorded'}
                   </strong>
                 </div>
                 <div className="sap-cell">
-                  <span>Physical count sync</span>
-                  <strong className={active?.dateoflastpostedcount === '00000000' ? 'sap-alert' : 'sap-ok'}>
-                    {active?.dateoflastpostedcount && active.dateoflastpostedcount !== '00000000' ? `Posted ${active.dateoflastpostedcount}` : 'Synchronized'}
+                  <span>Reorder point</span>
+                  <strong className={active?.variance < 0 ? 'sap-alert' : 'sap-ok'}>
+                    {active?.reorder_point || 0} {active?.uom || 'EA'}
                   </strong>
                 </div>
               </div>

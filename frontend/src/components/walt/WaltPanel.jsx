@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowUp, Bot, Database, MessageSquarePlus, Minus, Network, RefreshCw, ShieldCheck, Sparkles, X } from 'lucide-react'
+import { ArrowUp, Bot, MessageSquarePlus, Minus, Network, RefreshCw, ShieldCheck, Sparkles, X } from 'lucide-react'
 import { WaltMascot } from './WaltMascot'
 import { WaltMessage } from './WaltMessage'
 
@@ -42,7 +42,7 @@ export function WaltPanel({
   capabilities,
   architecture,
   closing,
-  contextCards,
+  contextCards: _contextCards,
   error,
   input,
   lastQuestion,
@@ -60,7 +60,7 @@ export function WaltPanel({
   onMinimize,
   onSelectAnomaly,
   placement,
-  requestActions,
+  requestActions: _requestActions,
   onRetry,
   onSend,
   riskCount,

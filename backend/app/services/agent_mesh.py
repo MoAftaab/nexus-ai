@@ -909,6 +909,22 @@ def _build_trace(handoffs, markdown, model_name: str = "AgentRouter Claude", inc
 # Public entry points
 # ---------------------------------------------------------------------------
 
+GENERAL_WALT_PROMPT = (
+    "You are WALT, a helpful assistant inside an enterprise operations control tower. "
+    "Answer the user's general question accurately and in simple, direct terms. "
+    "Keep the answer concise unless the user asks for detail. Do not pretend to have "
+    "live operational evidence for a topic that was not provided."
+)
+
+
+def _generic_trace(provider: str) -> list[dict[str, str]]:
+    return [{
+        "agent": "WALT",
+        "role": "General question answering",
+        "status": "completed",
+        "detail": f"{provider} answered outside the operational evidence scope",
+    }]
+
 
 async def run_agent_mesh(request: ChatRequest, store: OperationsStore, settings: Settings) -> ChatResponse:
     """Run all specialist roles in parallel and synthesize their audited handoff."""
@@ -918,6 +934,26 @@ async def run_agent_mesh(request: ChatRequest, store: OperationsStore, settings:
     llm_client = get_llm_client(settings)
     if llm_client.active_provider == "deterministic":
         return deterministic_mesh(request, store)
+
+    # General questions do not need five specialist calls and a long evidence
+    # synthesis. Route them through one short WALT completion so the chat can
+    # answer ordinary questions as well as dataset questions.
+    if not _looks_operational(request.message):
+        try:
+            final_text, provider = await llm_client.generate(
+                instructions=GENERAL_WALT_PROMPT,
+                input_text=request.message,
+                temperature=0.2,
+                max_tokens=768,
+            )
+            return ChatResponse(
+                answer=final_text.strip(), source=provider, cited_anomaly_ids=[],
+                suggested_actions=[], agent_trace=_generic_trace(provider),
+                confidence="medium", source_refs=[],
+            )
+        except Exception as exc:
+            logger.warning("General WALT question failed: %s", exc)
+            return _unsupported_response()
 
     try:
         handoffs, markdown, ids = await _run_all_specialists(llm_client, request, store)
@@ -965,6 +1001,25 @@ async def stream_agent_mesh(request: ChatRequest, store: OperationsStore, settin
         for word in evidence.answer.split(" "):
             yield f"event: delta\ndata: {json.dumps({'text': word + ' '})}\n\n"
         yield f"event: done\ndata: {json.dumps({'source': evidence.source, 'cited_anomaly_ids': evidence.cited_anomaly_ids, 'suggested_actions': evidence.suggested_actions, 'confidence': evidence.confidence, 'source_refs': evidence.source_refs})}\n\n"
+        return
+
+    if not _looks_operational(request.message):
+        trace = _generic_trace(llm_client.active_provider)
+        yield f"event: trace\ndata: {json.dumps(trace)}\n\n"
+        try:
+            async for token in llm_client.stream(
+                instructions=GENERAL_WALT_PROMPT,
+                input_text=request.message,
+                temperature=0.2,
+                max_tokens=768,
+            ):
+                yield f"event: delta\ndata: {json.dumps({'text': token})}\n\n"
+            yield f"event: done\ndata: {json.dumps({'source': llm_client.active_provider, 'cited_anomaly_ids': [], 'suggested_actions': [], 'confidence': 'medium', 'source_refs': []})}\n\n"
+        except Exception as exc:
+            logger.warning("General WALT stream failed: %s", exc)
+            evidence = _unsupported_response()
+            yield f"event: reset\ndata: {json.dumps({'text': evidence.answer})}\n\n"
+            yield f"event: done\ndata: {json.dumps({'source': evidence.source, 'cited_anomaly_ids': [], 'suggested_actions': [], 'confidence': evidence.confidence, 'source_refs': []})}\n\n"
         return
 
     try:

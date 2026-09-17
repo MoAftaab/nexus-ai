@@ -4,7 +4,6 @@ import { WaltAgentFlow } from './WaltAgentFlow'
 
 export function WaltMessage({ message, loading, architecture, onChoice, onConfirmAction, onDismissAction, onFeedback, onSelectAnomaly }) {
   const assistant = message.role === 'assistant'
-  const hasAgentFlow = assistant && (loading || message.trace?.length > 0)
   const action = message.action
   return <article className={`walt-chat-message ${message.role}`}>
     {assistant && !message.content && loading

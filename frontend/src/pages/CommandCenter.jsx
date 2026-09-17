@@ -6,7 +6,6 @@ import {
   Flame,
   Gauge,
   Layers,
-  Radio,
   ShieldAlert,
   ShieldCheck,
   Sparkles,
@@ -109,14 +108,6 @@ export function CommandCenter({ dashboard, workflow, outcomes, anomalies, onNavi
               {topInsight.text}
             </span>
           )}
-        </div>
-        <div className="cc-bar-right">
-          <span className="cc-live">
-            <Radio size={10} /> Live Data
-          </span>
-          <button className="cc-drill" onClick={() => onNavigate('intelligence')}>
-            Risk Intelligence <ArrowUpRight size={13} />
-          </button>
         </div>
       </header>
 
@@ -318,7 +309,7 @@ export function CommandCenter({ dashboard, workflow, outcomes, anomalies, onNavi
               </div>
             )}
             <button className="cc-tile-link" onClick={() => onNavigate('changes')}>
-              Open Change Ledger <ArrowUpRight size={11} />
+              Open Change Log <ArrowUpRight size={11} />
             </button>
           </div>
         </div>

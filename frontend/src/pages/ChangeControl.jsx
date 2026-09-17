@@ -68,7 +68,7 @@ export function ChangeControl({ principal, focusRequestId, onWorkflowChanged }) 
           <div className="section-title">
             <div>
               <span className="eyebrow"><Filter size={14} /> Requests</span>
-              <h3>Current change ledger</h3>
+              <h3>Current change log</h3>
             </div>
             <div className="change-toolbar-actions">
               <span className="change-kpi-chip">

@@ -49,12 +49,11 @@ event_bus = EventBus(settings.redis_url)
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    if not os.environ.get("PYTEST_CURRENT_TEST"):
-        if not store._hackathon_loaded:
-            try:
-                store.load_hackathon()
-            except Exception:
-                pass
+    if settings.demo_mode and not os.environ.get("PYTEST_CURRENT_TEST") and not store._hackathon_loaded:
+        # OperationsStore loads the official workbook during construction. This
+        # guard is a safety net for unusual process boot paths; do not hide a
+        # missing workbook by falling back to the legacy synthetic dataset.
+        store.load_hackathon()
     llm_client = get_llm_client(settings)
     probe_task = asyncio.create_task(llm_client.probe_and_configure_default())
     bus_task = asyncio.create_task(event_bus.start())
@@ -75,6 +74,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def add_no_cache_headers(request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
 
 
 @app.get("/api/health")

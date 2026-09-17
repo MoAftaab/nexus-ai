@@ -136,6 +136,12 @@ class LLMClient:
 
         # 1. Probe CodeCraft first so the requested model is the primary path.
         codecraft_ok, codecraft_code, codecraft_msg = await self.probe_codecraft()
+        self.probe_status["codecraft"] = {
+            "model": self.settings.codecraft_model,
+            "status_code": codecraft_code,
+            "ok": codecraft_ok,
+            "message": codecraft_msg,
+        }
         msg_cc = codecraft_msg.encode("ascii", errors="replace").decode("ascii")
         print(f"  [1] CodeCraft ({self.settings.codecraft_model}) -> {'200 OK' if codecraft_ok else f'HTTP {codecraft_code}'}: {msg_cc[:60]}")
 
