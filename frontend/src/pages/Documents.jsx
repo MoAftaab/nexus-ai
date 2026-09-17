@@ -1,12 +1,13 @@
 import { useRef, useState } from 'react'
-import { CheckCircle2, FileCheck2, FileText, FileWarning, FolderUp, Sparkles, Trash2, UploadCloud, X } from 'lucide-react'
+import { ArrowUpRight, CheckCircle2, DatabaseZap, FileCheck2, FileText, FileWarning, FolderUp, Sparkles, Trash2, UploadCloud, X } from 'lucide-react'
 
-export function Documents({ onInspect, onClearDocuments, documentData }) {
+export function Documents({ onInspect, onClearDocuments, documentData, onSelectAnomaly }) {
   const inputRef = useRef(null)
   const [result, setResult] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const ingested = (documentData?.items || []).filter((item) => item.status !== 'source').slice(0, 6)
+  const isHackathonDataset = documentData?.summary?.dataset_source === 'SAP Hackathon six-sheet workbook'
 
   const inspect = async (file) => {
     if (!file) return
@@ -42,6 +43,9 @@ export function Documents({ onInspect, onClearDocuments, documentData }) {
         value: String(value),
       })),
       mismatches: record.mismatches || [],
+      source_dataset: record.source_dataset,
+      linked_records: record.linked_records || [],
+      related_anomaly_ids: record.related_anomaly_ids || [],
       preview_url: `/api/documents/${record.id}/preview`,
     })
 
@@ -55,7 +59,7 @@ export function Documents({ onInspect, onClearDocuments, documentData }) {
             <div className="doc-card-head">
               <span className="eyebrow"><UploadCloud size={13} /> Ingest a packet</span>
               <div className="supported-tags">
-                <em>PPAP</em><em>ASN</em><em>VDA</em><em>Invoice</em><em>Cycle count</em>
+                <em>Material master</em><em>Inventory</em><em>Dispatch</em><em>Replenish</em><em>Vendor</em>
               </div>
             </div>
 
@@ -190,7 +194,7 @@ export function Documents({ onInspect, onClearDocuments, documentData }) {
                   <div className="doc-idle-fields">
                     <div className="doc-field-item">
                       <span>Monitoring scope</span>
-                      <strong>{documentData?.summary?.source_documents || 200} source files</strong>
+                      <strong>{isHackathonDataset ? `${documentData.summary.source_records} SAP records` : `${documentData?.summary?.source_documents || 200} source files`}</strong>
                     </div>
                     <div className="doc-field-item">
                       <span>Indexed memory</span>
@@ -198,7 +202,50 @@ export function Documents({ onInspect, onClearDocuments, documentData }) {
                     </div>
                     <div className="doc-field-item">
                       <span>Controls needing proof</span>
-                      <strong>{documentData?.summary?.release_controls_needing_evidence || 0} items</strong>
+                      <strong>{isHackathonDataset ? 'Linked on upload' : `${documentData?.summary?.release_controls_needing_evidence || 0} items`}</strong>
+                    </div>
+                  </div>
+                )}
+                {result?.source_dataset && (
+                  <div className="document-source-summary">
+                    <DatabaseZap size={13} />
+                    <span>Evidence source</span>
+                    <strong>{result.source_dataset}</strong>
+                  </div>
+                )}
+                {result?.linked_records?.length > 0 && (
+                  <div className="document-linked-records">
+                    <div className="document-linked-head">
+                      <span><DatabaseZap size={12} /> Official SAP records</span>
+                      <small>{result.linked_records.length} matched</small>
+                    </div>
+                    <div className="document-linked-list">
+                      {result.linked_records.map((linked) => (
+                        <article key={linked.record_id} className="document-linked-record">
+                          <div>
+                            <strong>{linked.sheet}</strong>
+                            <span>{linked.record_id}</span>
+                          </div>
+                          <small>Matched on {linked.matched_on}</small>
+                          <div className="document-linked-values">
+                            {Object.entries(linked.record || {}).filter(([, value]) => value && value !== 'None').slice(0, 6).map(([label, value]) => (
+                              <span key={label}><b>{label.replaceAll('_', ' ')}</b>{String(value)}</span>
+                            ))}
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {result?.related_anomaly_ids?.length > 0 && (
+                  <div className="document-related-findings">
+                    <span><FileWarning size={12} /> Related Hackathon findings</span>
+                    <div>
+                      {result.related_anomaly_ids.map((id) => (
+                        <button key={id} type="button" onClick={() => onSelectAnomaly?.({ id })}>
+                          {id} <ArrowUpRight size={11} />
+                        </button>
+                      ))}
                     </div>
                   </div>
                 )}

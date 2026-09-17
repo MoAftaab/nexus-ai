@@ -1,0 +1,2 @@
+Delivery,Material,Plant,Order Qty,Ship-To,Route,Planned GI Date,Status,Observation
+DLV-800002,MAT-100003,1710,5000,CUST-2017,R-EXPORT,2026-08-15,PICKED,Committed delivery quantity is greater than available stock.

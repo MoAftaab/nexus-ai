@@ -1370,6 +1370,9 @@ All corrective actions require human approval before source data changes. The au
         return sorted(items, key=lambda item: (item["status"] == "applied", -item["impact_saved"]))
 
     def inspect_document(self, filename: str, content: str) -> DocumentInspection:
+        if self._hackathon_loaded and self._hackathon_wb_data:
+            return self._inspect_hackathon_document(filename, content)
+
         normalized = content.lower()
         missing_ppap = next((item for item in self._dataset.documents if not item["ppap_attached"]), None)
         mismatches: list[dict[str, str]] = []
@@ -1389,6 +1392,128 @@ All corrective actions require human approval before source data changes. The au
             mismatches=mismatches,
         )
 
+    @staticmethod
+    def _document_value(value: object) -> str:
+        return value.isoformat() if hasattr(value, "isoformat") else str(value)
+
+    @staticmethod
+    def _hackathon_record_id(sheet: str, record: dict[str, object]) -> str:
+        keys = {
+            "Material_Master": ("material", "plant"),
+            "Inventory_Stock": ("material", "plant", "storage_location"),
+            "Warehouse_Bin": ("bin",),
+            "Deliveries_Dispatch": ("delivery",),
+            "Purchase_Replenish": ("purchase_order",),
+            "Vendor_Master": ("vendor",),
+        }
+        parts = [OperationsStore._document_value(record.get(key)) for key in keys.get(sheet, ()) if record.get(key) not in (None, "")]
+        return f"{sheet}/{'/'.join(parts)}"
+
+    def _inspect_hackathon_document(self, filename: str, content: str) -> DocumentInspection:
+        """Inspect uploaded evidence against the official six-sheet workbook.
+
+        The workbook has no document-control sheet. Evidence is therefore linked
+        to real SAP-style records by stable identifiers, then connected to the
+        detector findings already produced from those records. This keeps the
+        upload workflow useful without inventing PPAP/VDA fields that the
+        Hackathon baseline does not contain.
+        """
+        normalized = content.casefold()
+        specs = (
+            ("Material_Master", "material_master", ("material",)),
+            ("Inventory_Stock", "inventory_stock", ("material", "batch")),
+            ("Warehouse_Bin", "warehouse_bin", ("bin", "assigned_material")),
+            ("Deliveries_Dispatch", "deliveries_dispatch", ("delivery", "material")),
+            ("Purchase_Replenish", "purchase_replenish", ("purchase_order", "material", "vendor")),
+            ("Vendor_Master", "vendor_master", ("vendor",)),
+        )
+        linked_records: list[dict[str, object]] = []
+        seen_record_ids: set[str] = set()
+        matched_tokens: set[str] = set()
+
+        def mentioned(value: object) -> bool:
+            if value in (None, ""):
+                return False
+            token = self._document_value(value).strip()
+            if len(token) < 4 or token.isdigit():
+                return False
+            token_lower = token.casefold()
+            return token_lower in normalized
+
+        for sheet, key, identifier_keys in specs:
+            for record in self._hackathon_wb_data.get(key, []):
+                hits = [field for field in identifier_keys if mentioned(record.get(field))]
+                if not hits:
+                    continue
+                record_id = self._hackathon_record_id(sheet, record)
+                if record_id in seen_record_ids:
+                    continue
+                seen_record_ids.add(record_id)
+                for field in hits:
+                    matched_tokens.add(self._document_value(record.get(field)).casefold())
+                linked_records.append({
+                    "sheet": sheet,
+                    "record_id": record_id,
+                    "matched_on": ", ".join(f"{field}={self._document_value(record.get(field))}" for field in hits),
+                    "record": {field: self._document_value(value) for field, value in record.items()},
+                })
+
+        related = []
+        for anomaly in self.anomalies():
+            anomaly_tokens = {
+                str(anomaly.sku).casefold(),
+                str(anomaly.id).casefold(),
+                str(anomaly.title).casefold(),
+            }
+            if any(token and (token in matched_tokens or token in normalized) for token in anomaly_tokens):
+                related.append(anomaly)
+
+        mismatches: list[dict[str, str]] = []
+        if not linked_records:
+            mismatches.append({
+                "field": "Hackathon record link",
+                "document": "No supported identifier found",
+                "system": "Provide a material, plant, batch, delivery, purchase order, vendor, or bin ID",
+                "severity": "high",
+            })
+        else:
+            for anomaly in related[:12]:
+                mismatches.append({
+                    "field": f"Official finding {anomaly.id}",
+                    "document": "Record requires governed review",
+                    "system": anomaly.title,
+                    "severity": anomaly.severity,
+                    "anomaly_id": anomaly.id,
+                })
+
+        linked_count = len(linked_records)
+        related_count = len(related)
+        if related_count:
+            summary = f"Matched {linked_count} official SAP record{'s' if linked_count != 1 else ''}; {related_count} active Hackathon finding{'s' if related_count != 1 else ''} require governed review."
+        elif linked_count:
+            summary = f"Matched {linked_count} official SAP record{'s' if linked_count != 1 else ''}; no active Hackathon finding is linked to the supplied evidence."
+        else:
+            summary = "No official Hackathon record could be linked from the supplied identifiers."
+
+        fields = [
+            {"label": "Document reference", "value": filename},
+            {"label": "Inspection route", "value": "Hackathon SAP record linkage"},
+            {"label": "Matched records", "value": str(linked_count)},
+            {"label": "Related findings", "value": str(related_count)},
+        ]
+        return DocumentInspection(
+            filename=filename,
+            type=filename.rsplit(".", 1)[-1].upper() if "." in filename else "TEXT",
+            status="attention" if mismatches else "clean",
+            confidence=95 if linked_records else 70,
+            summary=summary,
+            fields=fields,
+            mismatches=mismatches,
+            source_dataset="SAP Hackathon six-sheet workbook",
+            linked_records=linked_records[:20],
+            related_anomaly_ids=[anomaly.id for anomaly in related[:12]],
+        )
+
     def context_brief(self) -> str:
         active = self.anomalies(status="open")
         facts = [f"{item.id}: {item.title}; impact €{item.impact:,}; deadline {item.time_to_impact}; root cause: {item.root_cause}" for item in active]
@@ -1398,8 +1523,31 @@ All corrective actions require human approval before source data changes. The au
         return retrieve_markdown(query)
 
     def documents(self) -> dict[str, object]:
-        held = [item for item in self._dataset.documents if not item["ppap_attached"] or not item["vda_attached"]]
         records = self.repository.documents()
+        if self._hackathon_loaded and self._hackathon_wb_data:
+            source_records = sum(
+                len(self._hackathon_wb_data.get(sheet_key, []))
+                for sheet_key in (
+                    "material_master",
+                    "inventory_stock",
+                    "warehouse_bin",
+                    "deliveries_dispatch",
+                    "purchase_replenish",
+                    "vendor_master",
+                )
+            )
+            return {
+                "summary": {
+                    "source_documents": 0,
+                    "source_records": source_records,
+                    "source_sheets": 6,
+                    "release_controls_needing_evidence": 0,
+                    "ingested_records": len([item for item in records if item["status"] != "source"]),
+                    "dataset_source": "SAP Hackathon six-sheet workbook",
+                },
+                "items": records,
+            }
+        held = [item for item in self._dataset.documents if not item["ppap_attached"] or not item["vda_attached"]]
         return {"summary": {"source_documents": len(self._dataset.documents), "release_controls_needing_evidence": len(held), "ingested_records": len([item for item in records if item["status"] != "source"])}, "items": records}
 
     def clear_documents(self) -> None:
@@ -1418,7 +1566,13 @@ All corrective actions require human approval before source data changes. The au
     def record_document(self, document_id: str, inspection: DocumentInspection, storage_path: str, markdown_path: str) -> None:
         inspection.document_id = document_id
         inspection.preview_url = f"/api/documents/{document_id}/preview"
-        self.repository.add_document(self._run_id, document_id, inspection.filename, inspection.type, storage_path, markdown_path, inspection.status, {field["label"]: field["value"] for field in inspection.fields}, inspection.mismatches)
+        extracted_fields = {field["label"]: field["value"] for field in inspection.fields}
+        extracted_fields["_metadata"] = {
+            "source_dataset": inspection.source_dataset,
+            "linked_records": inspection.linked_records,
+            "related_anomaly_ids": inspection.related_anomaly_ids,
+        }
+        self.repository.add_document(self._run_id, document_id, inspection.filename, inspection.type, storage_path, markdown_path, inspection.status, extracted_fields, inspection.mismatches)
         self.repository.add_audit(str(uuid.uuid4()), "document_ingested", "Document agent", {"document_id": document_id, "filename": inspection.filename, "status": inspection.status})
         mismatch_note = "; ".join(f"{item['field']} ({item['severity']})" for item in inspection.mismatches)
         self.repository.add_outcome(

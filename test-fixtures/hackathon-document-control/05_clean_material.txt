@@ -1,0 +1,7 @@
+Hackathon evidence packet
+Evidence type: material and inventory verification
+Material: MAT-100001
+Plant: 1710
+Storage location: BULK
+Unit of measure: KG
+Observation: material and inventory identifiers were verified against the official workbook.

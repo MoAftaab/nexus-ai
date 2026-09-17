@@ -186,7 +186,7 @@ export default function App() {
     if (visiblePage === 'intelligence') return <RiskIntelligence anomalies={anomalies} onSelectAnomaly={selectAnomaly} />
     if (visiblePage === 'reconcile') return <Reconciliation data={reconciliation} onSelectAnomaly={selectAnomaly} />
     if (visiblePage === 'agents') return <AgentWorkspace agents={agentData?.agents} communication={agentData?.communication} architecture={agentArchitecture} onChatStream={api.chatStream} onSelectAnomaly={selectAnomaly} />
-    if (visiblePage === 'documents') return <Documents onInspect={inspectDocument} onClearDocuments={clearDocuments} onDeleteDocument={deleteDocument} documentData={documentData} />
+    if (visiblePage === 'documents') return <Documents onInspect={inspectDocument} onClearDocuments={clearDocuments} onDeleteDocument={deleteDocument} onSelectAnomaly={selectAnomaly} documentData={documentData} />
     if (visiblePage === 'alerts') return <AlertsTimeline alerts={alerts} onSelectAnomaly={selectAnomaly} />
     if (visiblePage === 'outcomes') return <Outcomes outcomes={outcomeData} onSelectAnomaly={selectAnomaly} />
     if (visiblePage === 'system') return <SystemHealth />

@@ -435,17 +435,37 @@ class Repository:
         with self.session() as session:
             session.add(DocumentModel(run_id=run_id, document_id=document_id, filename=filename, document_type=document_type, storage_path=storage_path, markdown_path=markdown_path, status=status, extracted_data=_jsonable(extracted_data), cross_check_results=_jsonable(cross_check_results)))
 
+    @staticmethod
+    def _document_payload(row: DocumentModel) -> dict[str, Any]:
+        raw_fields = row.extracted_data or {}
+        metadata = raw_fields.get("_metadata", {}) if isinstance(raw_fields, dict) else {}
+        fields = {key: value for key, value in raw_fields.items() if key != "_metadata"} if isinstance(raw_fields, dict) else {}
+        return {
+            "id": row.document_id,
+            "filename": row.filename,
+            "type": row.document_type,
+            "status": row.status,
+            "created_at": row.created_at.isoformat(),
+            "storage_path": row.storage_path,
+            "markdown_path": row.markdown_path,
+            "fields": fields,
+            "mismatches": row.cross_check_results,
+            "source_dataset": metadata.get("source_dataset", "legacy_synthetic"),
+            "linked_records": metadata.get("linked_records", []),
+            "related_anomaly_ids": metadata.get("related_anomaly_ids", []),
+        }
+
     def documents(self, limit: int = 100) -> list[dict[str, Any]]:
         with self.session() as session:
             rows = session.scalars(select(DocumentModel).order_by(DocumentModel.created_at.desc()).limit(limit)).all()
-            return [{"id": row.document_id, "filename": row.filename, "type": row.document_type, "status": row.status, "created_at": row.created_at.isoformat(), "storage_path": row.storage_path, "markdown_path": row.markdown_path, "fields": row.extracted_data, "mismatches": row.cross_check_results} for row in rows]
+            return [self._document_payload(row) for row in rows]
 
     def document(self, document_id: str) -> dict[str, Any] | None:
         with self.session() as session:
             row = session.scalar(select(DocumentModel).where(DocumentModel.document_id == document_id))
             if not row:
                 return None
-            return {"id": row.document_id, "filename": row.filename, "type": row.document_type, "status": row.status, "created_at": row.created_at.isoformat(), "storage_path": row.storage_path, "markdown_path": row.markdown_path, "fields": row.extracted_data, "mismatches": row.cross_check_results}
+            return self._document_payload(row)
 
     def delete_documents(self) -> None:
         with self.session() as session:

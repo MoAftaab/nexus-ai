@@ -150,4 +150,7 @@ class DocumentInspection(BaseModel):
     summary: str
     fields: list[dict[str, str]]
     mismatches: list[dict[str, str]]
+    source_dataset: str = "legacy_synthetic"
+    linked_records: list[dict[str, object]] = Field(default_factory=list)
+    related_anomaly_ids: list[str] = Field(default_factory=list)
     preview_url: str | None = None

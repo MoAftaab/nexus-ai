@@ -1,0 +1,2 @@
+Purchase Order,Material,Vendor,Plant,PO Qty,Unit Price,PO Status,Observation
+PO-4500001,MAT-100024,VEND-5000,1710,100,155.02,OPEN,Vendor is procurement-blocked while the purchase order remains open.

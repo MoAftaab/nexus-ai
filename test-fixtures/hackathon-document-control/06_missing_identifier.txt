@@ -1,0 +1,2 @@
+Operational evidence note
+The packet contains a general release comment but no material, plant, batch, delivery, purchase order, vendor, or bin identifier.

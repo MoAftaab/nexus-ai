@@ -1,0 +1,2 @@
+Material,Plant,Storage Location,UoM,Qty On Hand,Blocked Qty,In-Transit Qty,Observation
+MAT-100003,1710,PICK,L,-15,10,60,Inventory stock is negative and needs a governed reconciliation.
