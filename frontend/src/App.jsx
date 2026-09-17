@@ -37,7 +37,7 @@ const pageInfo = {
   terms: ['Key terms', 'The domain, explained the way you’d say it out loud'],
 }
 
-pageInfo.changes = ['Change control', 'The approval chain, snapshots, and verified execution']
+pageInfo.changes = ['Change log', 'The approval chain, snapshots, and verified execution']
 pageInfo.archive = ['Audit archive', 'Immutable evidence for every governed decision']
 pageInfo.policy = ['Access & policy', 'Seeded identities, site scopes, and routing rules']
 

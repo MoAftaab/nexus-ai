@@ -6,7 +6,7 @@ const operationsNav = [
   { id: 'intelligence', label: 'Risk intelligence', icon: Radar },
   { id: 'reconcile', label: 'Reconciliation', icon: Scale },
   { id: 'documents', label: 'Document control', icon: FileSearch },
-  { id: 'changes', label: 'Change control', icon: GitPullRequest },
+  { id: 'changes', label: 'Change log', icon: GitPullRequest },
 ]
 
 export function Sidebar({ activePage, collapsed = false, onToggleCollapse, onNavigate, alertCount = 0, onClose, principal }) {
