@@ -1,13 +1,11 @@
-import { Activity, BrainCircuit, FileClock, FileSearch, GitPullRequest, KeyRound, LayoutDashboard, PanelLeftClose, PanelLeftOpen, Radar, Scale, X } from 'lucide-react'
+import { FileClock, FileSearch, GitPullRequest, KeyRound, LayoutDashboard, PanelLeftClose, PanelLeftOpen, Radar, Scale, X } from 'lucide-react'
 import { VwLogo } from './VwLogo'
 
 const operationsNav = [
   { id: 'command', label: 'Command center', icon: LayoutDashboard },
-  { id: 'agents', label: 'WALT copilot', icon: BrainCircuit },
   { id: 'intelligence', label: 'Risk intelligence', icon: Radar },
   { id: 'reconcile', label: 'Reconciliation', icon: Scale },
   { id: 'documents', label: 'Document control', icon: FileSearch },
-  { id: 'alerts', label: 'Alert timeline', icon: Activity },
   { id: 'changes', label: 'Change control', icon: GitPullRequest },
 ]
 

@@ -246,6 +246,7 @@ export default function App() {
       dashboard={dashboard}
       architecture={agentArchitecture}
       onChatStream={api.chatStream}
+      onSelectAnomaly={selectAnomaly}
       onWaltResolve={api.waltResolve}
       onWaltConfirm={api.confirmWaltAction}
       onWaltFeedback={api.waltFeedback}

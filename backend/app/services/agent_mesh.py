@@ -511,6 +511,8 @@ OPERATIONAL_TERMS = {
     "uom", "reorder", "safety", "stock", "sap", "erp", "wms", "tms", "gi", "overdue",
     "orphan", "blocked", "capacity", "overflow", "negative", "duplicate", "obsolete",
     "dispatcher", "controller", "steward", "buyer", "procurement",
+    # Multi-agent architecture and conversational triggers:
+    "agent", "agents", "walt", "specialist", "specialists", "mesh", "architecture", "who", "help", "hello", "hi", "hey",
     # Dataset-level questions are operational questions too. Keep these here
     # so follow-ups such as "show the whole dataset" reach the evidence engine
     # instead of falling through to the generic unsupported response.
@@ -650,6 +652,43 @@ def deterministic_mesh(request: ChatRequest, store: OperationsStore) -> ChatResp
     question = request.message.lower()
     if not _looks_operational(full_context):
         return _unsupported_response()
+    if re.search(r"\b(?:agents?|specialists?|architecture|mesh|how do you work)\b", question):
+        return ChatResponse(
+            answer=(
+                "### NexusAI Multi-Agent Architecture (7 Hackathon Agents)\n\n"
+                "WALT orchestrates a specialized multi-agent mesh grounded in the 6 SAP logistics sheets:\n\n"
+                "1. **Ingestion Agent** — Ingests 6 SAP domains (MARA, MARD, LAGP, LIKP, EKKO, LFA1) and validates schemas.\n"
+                "2. **Data-Quality Agent** — Validates master data integrity, UoM checks, and cross-reference coherence.\n"
+                "3. **Anomaly Agent** — Statistical and ML-powered detection across 24 catalog anomaly rules (A1–X2).\n"
+                "4. **Correlation / Root-Cause Agent** — Traces multi-system dependency links and ERP-WMS causal mechanisms.\n"
+                "5. **Impact Agent** — Quantifies financial risk (€ exposure) and critical SLA deadlines (Monte-Carlo).\n"
+                "6. **Action / Remediation Agent** — Designs safe, governed containment controls requiring human approval.\n"
+                "7. **Orchestrator (WALT)** — Synthesizes specialist findings into actionable operational decision briefs.\n\n"
+                "Ask me about any specific finding, stockout risk, or vendor issue to see the mesh in action."
+            ),
+            source="operational_evidence",
+            cited_anomaly_ids=[],
+            suggested_actions=["What needs attention first?", "What is the biggest stockout or ATP risk?", "Show dataset overview"],
+            confidence="high",
+            source_refs=["architecture_7_agents"],
+        )
+    if re.search(r"^(?:hi|hello|hey|greetings|good\s+(?:morning|afternoon|evening))\b", question.strip()):
+        return ChatResponse(
+            answer=(
+                "Hello! I am **WALT**, your Warehouse Logistics Twin orchestrator. "
+                "I synthesize real-time signals from **7 specialist agents** across SAP ERP, WMS, and TMS data.\n\n"
+                "Here are key questions you can ask me right now:\n"
+                "- **\"What needs attention first?\"** — Evaluates highest-impact open risks and SLA deadlines\n"
+                "- **\"Show dataset overview\"** — Live breakdown across 6 SAP sheets and 24 catalog anomaly rules\n"
+                "- **\"What is the biggest stockout or ATP risk?\"** — Cross-system correlation (X2) on dispatch vs inventory\n"
+                "- **\"Tell me about vendor VEND-5000\"** — Investigates blocked vendors and open purchase orders"
+            ),
+            source="operational_evidence",
+            cited_anomaly_ids=[],
+            suggested_actions=["What needs attention first?", "What is the biggest stockout or ATP risk?", "Show dataset overview"],
+            confidence="high",
+            source_refs=[],
+        )
     if re.search(r"\b(?:whole|overall|entire|complete|full|all|dataset|records?)\b", question) and re.search(r"\b(?:dataset|data|anomal(?:y|ies)|finding|records?|board|summary|overview|breakdown)\b", question):
         if re.search(r"\b(?:list|show|all|every)\b.{0,24}\b(?:anomal(?:y|ies)|finding|findings)\b", question) or re.search(r"\b(?:anomal(?:y|ies)|finding|findings)\b.{0,24}\b(?:list|show|all|every)\b", question):
             return _anomaly_list_response(store)

@@ -1,21 +1,30 @@
-import { BellRing, CheckCircle2, Clock3, Database, MapPin, Radio, Send, ShieldCheck, ThumbsDown, ThumbsUp, UserRound, X } from 'lucide-react'
+import { BellRing, CheckCircle2, ChevronRight, Clock3, Database, MapPin, Radio, Send, ShieldCheck, ThumbsDown, ThumbsUp, UserRound, X } from 'lucide-react'
 import { Markdown } from '../Markdown'
 import { WaltAgentFlow } from './WaltAgentFlow'
 
-export function WaltMessage({ message, loading, architecture, onChoice, onConfirmAction, onDismissAction, onFeedback }) {
+export function WaltMessage({ message, loading, architecture, onChoice, onConfirmAction, onDismissAction, onFeedback, onSelectAnomaly }) {
   const assistant = message.role === 'assistant'
   const hasAgentFlow = assistant && (loading || message.trace?.length > 0)
   const action = message.action
-  return <article className={`walt-chat-message ${message.role} ${hasAgentFlow ? 'has-agent-flow' : ''}`}>
-    {assistant && loading && <WaltAgentFlow trace={message.trace} architecture={architecture} streaming />}
+  return <article className={`walt-chat-message ${message.role}`}>
     {assistant && !message.content && loading
-      ? <div className="walt-typing" aria-label="WALT is processing"><i /><i /><i /><span>Reviewing live evidence</span></div>
+      ? <div className="walt-typing" aria-label="WALT is processing"><i /><i /><i /><span>Consulting 7 specialist agents…</span></div>
       : assistant
-        ? <Markdown text={message.content || ''} />
+        ? <Markdown text={message.content || ''} onCite={(id) => onSelectAnomaly?.({ id })} />
         : <p>{message.content}</p>}
     {assistant && message.choices?.length > 0 && <div className="walt-command-choices" aria-label="Choose a governed request">
       {message.choices.map((choice) => <button type="button" key={choice.request_id} onClick={() => onChoice?.(choice.prompt)}>
         <span>{choice.request_id}</span><small>{choice.label.split(' · ', 2)[1] || choice.status}</small>
+      </button>)}
+    </div>}
+    {assistant && message.suggestions?.length > 0 && <div className="walt-suggestion-actions" aria-label="Explore an available control">
+      <span className="walt-suggestion-label">Explore an available control</span>
+      {message.suggestions.map((suggestion) => <button
+        type="button"
+        key={suggestion}
+        onClick={() => onChoice?.(`Walk me through this control before I approve it: "${suggestion}". What are the steps, risks and verification?`)}
+      >
+        <span>{suggestion}</span><ChevronRight size={12} />
       </button>)}
     </div>}
     {assistant && action && <section className="walt-action-card" data-status={action.status || 'previewed'} aria-label={`${action.kind} confirmation`}>
@@ -38,7 +47,7 @@ export function WaltMessage({ message, loading, architecture, onChoice, onConfir
       {message.trace?.length > 0 && !loading && <WaltAgentFlow trace={message.trace} architecture={architecture} />}
       <footer>
         {['codecraft', 'openai', 'ollama'].includes(message.source) ? <Radio size={11} /> : message.source === 'governance' ? <ShieldCheck size={11} /> : <Database size={11} />}
-        <span>{message.source === 'codecraft' ? 'CodeCraft GPT-5.6 Luna · 5 specialist agents + WALT Coordinator' : message.source === 'ollama' ? 'Ollama local fallback · 5 specialist agents + WALT Coordinator' : message.source === 'openai' ? 'Direct OpenAI · 5 specialist agents + WALT Coordinator' : message.source === 'governance' ? 'Verified identity & workflow policy' : message.source === 'request_cancelled' ? 'Request stopped by operator' : 'Operational evidence'}{message.confidence ? ` · ${message.confidence} confidence` : ''}{message.sourceRefs?.length ? ` · ${message.sourceRefs.slice(0, 3).join(', ')}` : ''}</span>
+        <span>{['codecraft', 'openai', 'ollama'].includes(message.source) ? `${architecture?.provider_label || 'Mesh LLM'} · 7 specialist agents + Orchestrator (WALT)` : message.source === 'governance' ? 'Verified identity & workflow policy' : message.source === 'request_cancelled' ? 'Request stopped by operator' : 'Grounded operational twin'}{message.confidence ? ` · ${message.confidence} confidence` : ''}{message.sourceRefs?.length ? ` · ${message.sourceRefs.slice(0, 3).join(', ')}` : ''}</span>
       </footer>
       {message.id && !loading && <div className="walt-message-feedback" aria-label="Rate WALT response">
         <span>Was this useful?</span>

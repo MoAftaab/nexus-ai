@@ -25,10 +25,10 @@ export function WaltAgentFlow({ trace = [], streaming = false, architecture }) {
     .find(Boolean)
   const providerName = architecture?.provider_label ? `${architecture.provider_label} · ` : ''
 
-  return <details className="walt-agent-flow" open={streaming}>
+  return <details className="walt-agent-flow">
     <summary>
       <span className="walt-agent-flow__icon"><Network size={12} /></span>
-      <span><b>Multi-agent analysis</b><small>{hasTrace ? `${providerName}${modelName || 'Evidence mode'} · ${completed}/5 specialist handoffs` : `${providerName || ''}5 specialists consulting in parallel`}</small></span>
+      <span><b>Multi-agent analysis</b><small>{hasTrace ? `${providerName}${modelName || 'Evidence mode'} · ${completed}/5 specialist handoffs` : `${providerName || ''}7 specialists consulting in parallel`}</small></span>
       <ChevronDown className="walt-agent-flow__chevron" size={13} />
     </summary>
     <div className="walt-agent-flow__body">
@@ -48,7 +48,7 @@ export function WaltAgentFlow({ trace = [], streaming = false, architecture }) {
         <span className="walt-agent-handoff__line"><i /><i /><i /></span>
         <div className={streaming ? 'is-synthesizing' : 'is-complete'}>
           <Sparkles size={12} />
-          <span><b>WALT Coordinator</b><small>{streaming ? 'Combining one grounded answer' : 'Answer ready'}</small></span>
+          <span><b>Orchestrator (WALT)</b><small>{streaming ? 'Synthesizing verified multi-agent answer' : 'Multi-agent answer synthesized'}</small></span>
         </div>
       </div>
       {(hasTrace || knowledge || orchestrator) && <p className="walt-agent-evidence">

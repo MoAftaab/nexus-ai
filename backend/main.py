@@ -625,10 +625,12 @@ async def agents() -> dict[str, object]:
     findings = store.anomalies()
     lead = findings[0] if findings else None
     return {"agents": store.dashboard()["agents"], "communication": [
-        {"from": "Monitor Agent", "to": "Investigator Agent", "message": f"{lead.id if lead else 'No finding'} crossed its detection threshold", "time": (datetime.now(timezone.utc).replace(microsecond=0)).strftime("%H:%M")},
-        {"from": "Investigator Agent", "to": "Advisor Agent", "message": f"{len(lead.cascade_edges) if lead else 0} cross-system dependencies identified", "time": (datetime.now(timezone.utc).replace(microsecond=0)).strftime("%H:%M")},
-        {"from": "Advisor Agent", "to": "Approval Agent", "message": f"{('€' + format(lead.impact, ',')) if lead else '€0'} exposure modeled — recommended control staged", "time": (datetime.now(timezone.utc).replace(microsecond=0)).strftime("%H:%M")},
-        {"from": "Approval Agent", "to": "Audit Agent", "message": "Awaiting authorized manager RBAC signature for immutable logging", "time": (datetime.now(timezone.utc).replace(microsecond=0)).strftime("%H:%M")},
+        {"from": "Ingestion Agent", "to": "Data-Quality Agent", "message": "Normalised 6 SAP sheets into unified schema", "time": (datetime.now(timezone.utc).replace(microsecond=0)).strftime("%H:%M")},
+        {"from": "Data-Quality Agent", "to": "Anomaly Agent", "message": "Master data validated; flagged catalog checks A1–A6", "time": (datetime.now(timezone.utc).replace(microsecond=0)).strftime("%H:%M")},
+        {"from": "Anomaly Agent", "to": "Correlation / Root-Cause Agent", "message": f"{lead.id if lead else 'No finding'} crossed its detection threshold", "time": (datetime.now(timezone.utc).replace(microsecond=0)).strftime("%H:%M")},
+        {"from": "Correlation / Root-Cause Agent", "to": "Impact Agent", "message": f"{len(lead.cascade_edges) if lead else 0} cross-system dependencies identified", "time": (datetime.now(timezone.utc).replace(microsecond=0)).strftime("%H:%M")},
+        {"from": "Impact Agent", "to": "Action / Remediation Agent", "message": f"{('€' + format(lead.impact, ',')) if lead else '€0'} exposure modeled — recommended control staged", "time": (datetime.now(timezone.utc).replace(microsecond=0)).strftime("%H:%M")},
+        {"from": "Action / Remediation Agent", "to": "Orchestrator (WALT)", "message": "Change control staged with Before/Proposed/After; awaiting human approval", "time": (datetime.now(timezone.utc).replace(microsecond=0)).strftime("%H:%M")},
     ]}
 
 

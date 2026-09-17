@@ -1,16 +1,25 @@
 import { Activity, BrainCircuit, Database, Network, ShieldCheck, Sparkles } from 'lucide-react'
 
 const fallbackTiers = [
-  { id: 'source', label: 'Live source twin', status: 'connected', detail: 'Dataset records and active findings' },
-  { id: 'specialists', label: 'Five specialists', status: 'ready', detail: 'Detect · correlate · assess · recommend' },
-  { id: 'orchestrator', label: 'WALT Coordinator', status: 'ready', detail: 'Grounded multi-agent synthesis' },
-  { id: 'governance', label: 'RBAC + audit', status: 'enforced', detail: 'Role-scoped escalation and approval' },
+  { id: 'ingestion', label: 'Ingestion Agent', status: 'connected', detail: '6 SAP sheets loaded & unified' },
+  { id: 'data_quality', label: 'Data-Quality Agent', status: 'ready', detail: 'Master data catalog checks (A1–A6)' },
+  { id: 'anomaly', label: 'Anomaly Agent', status: 'ready', detail: 'Inventory & process anomalies (B1–F2)' },
+  { id: 'correlation', label: 'Correlation / Root-Cause Agent', status: 'ready', detail: 'Cross-system root cause & cascade (X1–X2)' },
+  { id: 'impact', label: 'Impact Agent', status: 'ready', detail: 'Exposure scoring & priority worklist' },
+  { id: 'remediation', label: 'Action / Remediation Agent', status: 'ready', detail: 'Human-approved change control & fixes' },
+  { id: 'orchestrator', label: 'Orchestrator (WALT)', status: 'ready', detail: 'Flow planning, specialist handoffs & audit' },
 ]
 
 const tierIcons = {
   source: Database,
-  specialists: BrainCircuit,
+  ingestion: Database,
+  data_quality: ShieldCheck,
+  anomaly: Activity,
+  correlation: Network,
+  impact: BrainCircuit,
+  remediation: ShieldCheck,
   orchestrator: Sparkles,
+  specialists: BrainCircuit,
   governance: ShieldCheck,
 }
 

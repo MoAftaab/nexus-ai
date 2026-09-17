@@ -356,12 +356,13 @@ class OperationsStore:
             "ml_model": self._ml_metadata(),
             "exposure_trend": [{"h": label, "v": value} for label, value in zip(("06", "08", "10", "12", "14", "16", "Now"), trend_values)],
             "agents": [
-                {"name": "Monitor Agent", "role": "Anomaly Detection", "state": "watching", "signal": f"{len(open_items)} active findings", "color": "cyan"},
-                {"name": "Investigator Agent", "role": "Cross-System Linkage", "state": "reasoning", "signal": f"{sum(1 for item in open_items if item.cascade_nodes)} correlated paths", "color": "violet"},
-                {"name": "Advisor Agent", "role": "Impact & Action Advisory", "state": "ready", "signal": f"€{exposure:,} exposure modeled", "color": "peach"},
-                {"name": "Approval Agent", "role": "RBAC Routing", "state": "active", "signal": f"{sum(len(item.actions) for item in open_items)} controls governed", "color": "mint"},
-                {"name": "Audit Agent", "role": "Compliance Recording", "state": "watching", "signal": "100% decisions archived", "color": "blue"},
-                {"name": "Copilot Agent", "role": "Natural Language Support", "state": "ready", "signal": "Live assistant active", "color": "amber"},
+                {"name": "Ingestion Agent", "role": "Data Ingestion & Schema Mapping", "state": "watching", "signal": "6 SAP sheets loaded & unified", "color": "cyan"},
+                {"name": "Data-Quality Agent", "role": "Master Data Quality (A1–A6)", "state": "ready", "signal": "Master data catalog rules active", "color": "mint"},
+                {"name": "Anomaly Agent", "role": "Inventory & Process Anomalies (B1–F2)", "state": "watching", "signal": f"{len(open_items)} active findings", "color": "violet"},
+                {"name": "Correlation / Root-Cause Agent", "role": "Cross-System Linkage & Root Cause", "state": "reasoning", "signal": f"{sum(1 for item in open_items if item.cascade_nodes)} correlated paths (X1–X2)", "color": "peach"},
+                {"name": "Impact Agent", "role": "Business Impact & Exposure Scoring", "state": "ready", "signal": f"€{exposure:,} exposure modeled", "color": "amber"},
+                {"name": "Action / Remediation Agent", "role": "Human-Approved Change Control", "state": "active", "signal": f"{sum(len(item.actions) for item in open_items)} controls governed", "color": "blue"},
+                {"name": "Orchestrator (WALT)", "role": "Flow Planning & Audit Trail", "state": "ready", "signal": "Multi-agent coordination & audit", "color": "electric"},
             ],
         }
 
@@ -1383,20 +1384,23 @@ All corrective actions require human approval before source data changes. The au
         provider = self._get_active_provider()
         dashboard = self.dashboard()
         provider_label = {"codecraft": "CodeCraft", "openai": "Direct OpenAI", "ollama": "Ollama", "agentrouter": "AgentRouter Claude"}.get(provider, "Evidence mode")
-        return {"model": self._get_active_model(), "provider": provider, "provider_label": provider_label, "enabled": provider != "deterministic", "orchestrator": "WALT Coordinator", "specialists": [
-            {"name": "Orchestrator Agent", "responsibility": "Assigns tasks to the right AI agents based on their capabilities and coordinates the overall workflow", "input": "Operator prompts + Specialist handoffs"},
-            {"name": "Monitor Agent", "responsibility": "Monitors warehouse data and detects anomalies", "input": "Generated source records + selected ML score"},
-            {"name": "Investigator Agent", "responsibility": "Identifies root causes by correlating data across systems", "input": "Verified findings + Markdown retrieval"},
-            {"name": "Advisor Agent", "responsibility": "Recommends corrective actions and estimates business impact", "input": "Cascade conditions + cost models + playbook controls"},
-            {"name": "Approval Agent", "responsibility": "Routes critical actions to authorized managers using RBAC", "input": "Site/role policies + staged change drafts"},
-            {"name": "Copilot Agent", "responsibility": "Answers warehouse queries and assists users in natural language", "input": "Natural language prompt + knowledge base context"},
-            {"name": "Audit Agent", "responsibility": "Records every decision, approval, and action for compliance", "input": "Immutable audit events + operator signatures"},
+        return {"model": self._get_active_model(), "provider": provider, "provider_label": provider_label, "enabled": provider != "deterministic", "orchestrator": "Orchestrator (WALT)", "specialists": [
+            {"name": "Ingestion Agent", "responsibility": "Load and normalise Excel/SAP sheets, resolve keys, build unified view", "input": "6 SAP sheets: Material_Master, Inventory_Stock, Warehouse_Bin, Deliveries_Dispatch, Purchase_Replenish, Vendor_Master"},
+            {"name": "Data-Quality Agent", "responsibility": "Detect bad/missing/duplicate/obsolete master data (A1–A6)", "input": "Material master fields, UoM, reorder point, safety stock, hazmat, lifecycle"},
+            {"name": "Anomaly Agent", "responsibility": "Detect inventory & process anomalies (B1–B5, C1–C4, D2–D5, E1–E4, F1–F2)", "input": "Negative stock, batch expiry, stale stock, bin capacity, overdue GI, PO status"},
+            {"name": "Correlation / Root-Cause Agent", "responsibility": "Link related anomalies across systems and infer underlying cause (X1, X2, cascade tracing)", "input": "Cross-system entity correlation, ATP shortfall, ERP/WMS replication gaps"},
+            {"name": "Impact Agent", "responsibility": "Score business impact and prioritise worklist (€ exposure, P90 risk, scoring model)", "input": "Financial exposure (€), SLA breach risk, deadline urgency ranking"},
+            {"name": "Action / Remediation Agent", "responsibility": "Propose or execute fix; route for human approval (Change Control, Before/Proposed/After, auto-remediation)", "input": "Control playbooks, parameter corrections, staged change drafts, RBAC approval"},
+            {"name": "Orchestrator (WALT)", "responsibility": "Plan the flow, delegate to agents, maintain the audit trail", "input": "Operator queries, multi-agent handoffs, immutable audit events"},
         ], "tiers": [
-            {"id": "source", "label": "Live source twin", "status": "connected", "detail": f"{dashboard['dataset']['records']:,} operational records · {sum(dashboard['severity_counts'].values())} active findings"},
-            {"id": "specialists", "label": "Five specialists", "status": "ready", "detail": "Detection, linkage, cascade, impact, and control design"},
-            {"id": "orchestrator", "label": "WALT Coordinator", "status": "ready", "detail": f"Grounded synthesis via {provider_label} · {self._get_active_model()}"},
-            {"id": "governance", "label": "RBAC + audit", "status": "enforced", "detail": "Role-scoped escalation and human approval required"},
-        ], "dataset": {"status": "connected", "records": dashboard["dataset"]["records"], "active_findings": sum(dashboard["severity_counts"].values()), "scan_count": dashboard["scan_count"]}, "handoff_policy": "Specialists cannot mutate source data without human approval. The WALT Coordinator coordinates agent handoffs, and the Approval Agent enforces RBAC governance."}
+            {"id": "source", "label": "Ingestion Agent", "status": "connected", "detail": f"6 SAP sheets ({dashboard['dataset']['records']:,} records) · Unified operational twin"},
+            {"id": "data_quality", "label": "Data-Quality Agent", "status": "ready", "detail": "Master data catalog rules (A1–A6) & schema validation"},
+            {"id": "anomaly", "label": "Anomaly Agent", "status": "ready", "detail": f"Inventory & process anomaly detection ({sum(dashboard['severity_counts'].values())} active findings)"},
+            {"id": "correlation", "label": "Correlation / Root-Cause Agent", "status": "ready", "detail": "Cross-system entity linkage & cascade simulation (X1–X2)"},
+            {"id": "impact", "label": "Impact Agent", "status": "ready", "detail": "Financial exposure quantification & risk scoring model"},
+            {"id": "remediation", "label": "Action / Remediation Agent", "status": "ready", "detail": "Human-approved change control, Before/Proposed/After & remediation"},
+            {"id": "orchestrator", "label": "Orchestrator (WALT)", "status": "ready", "detail": f"Flow planning & audit trail via {provider_label} · {self._get_active_model()}"},
+        ], "dataset": {"status": "connected", "records": dashboard["dataset"]["records"], "active_findings": sum(dashboard["severity_counts"].values()), "scan_count": dashboard["scan_count"]}, "handoff_policy": "Specialists cannot mutate source data without human approval. Orchestrator (WALT) coordinates agent handoffs, and Action / Remediation Agent enforces RBAC governance."}
 
     def hackathon_export(self) -> dict[str, object]:
         """Generate official hackathon verification and coverage report for judges."""

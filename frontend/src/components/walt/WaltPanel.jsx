@@ -1,12 +1,12 @@
-import { useEffect, useRef } from 'react'
-import { ArrowUp, ChevronDown, LockKeyhole, MessageSquarePlus, Minus, RefreshCw, Route, ShieldCheck, Sparkles, X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { ArrowUp, Bot, Database, MessageSquarePlus, Minus, Network, RefreshCw, ShieldCheck, Sparkles, X } from 'lucide-react'
 import { WaltMascot } from './WaltMascot'
 import { WaltMessage } from './WaltMessage'
-import { WaltArchitecture } from './WaltArchitecture'
 
 const fallbackQuestions = [
   'What needs attention first?',
   'Which control protects the most value?',
+  'Explain any master data or ATP risk',
 ]
 
 const activityCopy = {
@@ -15,8 +15,8 @@ const activityCopy = {
   listening: 'Listening to your question',
   thinking: 'Planning the evidence search',
   analysing: 'Analysing operational records',
-  'walking-left': 'Moving to a safe position',
-  'walking-right': 'Moving to a safe position',
+  'walking-left': 'Monitoring twin',
+  'walking-right': 'Monitoring twin',
   dragging: 'Repositioning WALT',
   waiting: 'Live operational evidence connected',
   speaking: 'Streaming a grounded response',
@@ -27,6 +27,16 @@ const activityCopy = {
   sleeping: 'Low-power watch mode',
   waking: 'WALT systems online',
 }
+
+const HACKATHON_AGENTS = [
+  { id: 'ingestion', name: 'Ingestion Agent', role: 'Data Ingestion & Normalisation', desc: 'Loads and normalises 6 Excel/SAP sheets, resolves keys, builds unified view.', status: 'connected' },
+  { id: 'data_quality', name: 'Data-Quality Agent', role: 'Master Data Checks (A1–A6)', desc: 'Detects bad, missing, duplicate, and obsolete master data.', status: 'active' },
+  { id: 'anomaly', name: 'Anomaly Agent', role: 'Operational Anomaly Detection (B1–F2)', desc: 'Detects inventory, bin, dispatch, PO, and vendor anomalies.', status: 'active' },
+  { id: 'correlation', name: 'Correlation / Root-Cause Agent', role: 'Cross-System Linkage (X1–X2)', desc: 'Links related anomalies across systems and infers underlying cause (cascade tracing).', status: 'active' },
+  { id: 'impact', name: 'Impact Agent', role: 'Impact & Prioritisation', desc: 'Scores business impact and prioritises worklist (€ exposure, P90 risk, scoring model).', status: 'active' },
+  { id: 'remediation', name: 'Action / Remediation Agent', role: 'Action & Remediation', desc: 'Proposes fixes and routes for human approval (Change Control, Before/Proposed/After).', status: 'active' },
+  { id: 'orchestrator', name: 'Orchestrator (WALT)', role: 'Multi-Agent Coordination', desc: 'Plans the flow, delegates to specialist agents, maintains immutable audit trail.', status: 'active' },
+]
 
 export function WaltPanel({
   capabilities,
@@ -48,6 +58,7 @@ export function WaltPanel({
   onInputBlur,
   onInputFocus,
   onMinimize,
+  onSelectAnomaly,
   placement,
   requestActions,
   onRetry,
@@ -55,10 +66,9 @@ export function WaltPanel({
   riskCount,
   state,
 }) {
+  const [showAgents, setShowAgents] = useState(false)
   const messagesRef = useRef(null)
   const quickQuestions = capabilities?.question_starters?.length ? capabilities.question_starters.slice(0, 3) : fallbackQuestions
-  const permittedActionLabels = new Map((capabilities?.permitted_actions || []).map((action) => [action.id, action.label]))
-  const selectedPermissions = (requestActions || []).filter((action) => permittedActionLabels.has(action)).map((action) => permittedActionLabels.get(action))
 
   useEffect(() => {
     const element = messagesRef.current
@@ -78,35 +88,64 @@ export function WaltPanel({
       <WaltMascot state={state} compact riskCount={riskCount} />
       <div className="walt-panel-identity">
         <strong>WALT</strong>
-        <span>Warehouse Action &amp; Logistics Twin</span>
+        <span>Warehouse Logistics Twin</span>
       </div>
       <div className="walt-panel-controls">
-        <button className="walt-new-chat" type="button" disabled={loading} onClick={onClearChat} aria-label="Start a new WALT chat" title="Clear this conversation and start a new chat"><MessageSquarePlus size={14} /><span>New chat</span></button>
-        <button type="button" onClick={onMinimize} aria-label="Minimize WALT"><Minus size={16} /></button>
-        <button type="button" onClick={onClose} aria-label="Close WALT"><X size={16} /></button>
+        <button
+          className={`walt-agents-toggle ${showAgents ? 'active' : ''}`}
+          type="button"
+          onClick={() => setShowAgents((current) => !current)}
+          aria-label="View 7 specialist agents"
+          title="Inspect the 7 specialist agents"
+        >
+          <Bot size={13} />
+          <span>7 Agents</span>
+        </button>
+        <button className="walt-new-chat" type="button" disabled={loading} onClick={onClearChat} aria-label="Start a new WALT chat" title="Clear this conversation and start a new chat">
+          <MessageSquarePlus size={14} />
+          <span>New</span>
+        </button>
+        <button type="button" onClick={onMinimize} aria-label="Minimize WALT" title="Minimize"><Minus size={16} /></button>
+        <button type="button" onClick={onClose} aria-label="Close WALT" title="Close"><X size={16} /></button>
       </div>
     </header>
 
     <div className="walt-activity" data-state={state} aria-live="polite">
-      <Sparkles size={12} /><span>{activityCopy[state] || activityCopy.idle}</span>
+      <Sparkles size={12} />
+      <span>{activityCopy[state] || activityCopy.idle}</span>
+      <span className="walt-activity-pill">7 agents live</span>
       {riskCount > 0 && <b>{riskCount} priority</b>}
     </div>
 
-    {contextCards?.length > 0 && <div className="walt-context-cards" aria-label="Current operational context">
-      {contextCards.map((card) => <article key={card.label} data-tone={card.tone}><span>{card.label}</span><strong>{card.value}</strong></article>)}
-    </div>}
-    <WaltArchitecture architecture={architecture} compact />
-
-
-    {capabilities && <details className="walt-capability-guide">
-      <summary><span><Sparkles size={13} />What WALT can do for {capabilities.role_label}</span><ChevronDown size={13} /></summary>
-      <div className="walt-capability-body">
-        <div className="walt-capability-list">{capabilities.capabilities?.map((item) => <article key={item.id}><ShieldCheck size={13} /><div><strong>{item.label}</strong><p>{item.detail}</p></div></article>)}</div>
-        <div className={`walt-escalation-scope ${capabilities.escalation?.available ? 'available' : ''}`}><Route size={14} /><div><strong>{capabilities.escalation?.available ? 'Escalation preparation available' : 'Escalation is role-scoped'}</strong><p>{capabilities.escalation?.detail}</p></div></div>
-        <div className="walt-permission-scope"><LockKeyhole size={13} /><div><strong>Selected request permissions</strong><p>{selectedPermissions.length ? selectedPermissions.join(' · ') : 'No state-changing action is available for the selected request.'}</p></div></div>
-        <small>{capabilities.disclaimer}</small>
+    {showAgents && (
+      <div className="walt-agents-modal">
+        <div className="walt-agents-modal-header">
+          <div className="walt-agents-modal-title">
+            <Network size={14} />
+            <strong>7 Multi-Agent Specialists</strong>
+          </div>
+          <button type="button" onClick={() => setShowAgents(false)} aria-label="Close agents roster"><X size={14} /></button>
+        </div>
+        <p className="walt-agents-modal-intro">
+          WALT coordinates 7 specialist agents aligned to the Hackathon Architecture to inspect 6 SAP sheets and stage human-approved controls.
+        </p>
+        <div className="walt-agents-list">
+          {HACKATHON_AGENTS.map((agent, index) => (
+            <article key={agent.id} className="walt-agent-roster-card">
+              <span className="walt-agent-num">{index + 1}</span>
+              <div className="walt-agent-info">
+                <div className="walt-agent-name-row">
+                  <strong>{agent.name}</strong>
+                  <span className="walt-agent-status-badge">{agent.status}</span>
+                </div>
+                <small className="walt-agent-role-tag">{agent.role}</small>
+                <p>{agent.desc}</p>
+              </div>
+            </article>
+          ))}
+        </div>
       </div>
-    </details>}
+    )}
 
     <div className="walt-conversation" ref={messagesRef}>
       {messages.map((message, index) => <WaltMessage
@@ -118,11 +157,16 @@ export function WaltPanel({
         onConfirmAction={onConfirmAction}
         onDismissAction={onDismissAction}
         onFeedback={onFeedback}
+        onSelectAnomaly={onSelectAnomaly}
       />)}
     </div>
 
-    {messages.length === 1 && <div className="walt-quick-questions"><span className="walt-quick-label">Try asking WALT</span>
-      {quickQuestions.map((question) => <button type="button" key={question} onClick={() => onSend(question)}>{question}<ArrowUp size={12} /></button>)}
+    {messages.length === 1 && !loading && <div className="walt-quick-questions">
+      <span className="walt-quick-label">Suggested questions</span>
+      {quickQuestions.map((question) => <button type="button" key={question} onClick={() => onSend(question)}>
+        <span>{question}</span>
+        <ArrowUp size={12} />
+      </button>)}
     </div>}
 
     {error && <div className="walt-error" role="alert">
@@ -136,7 +180,7 @@ export function WaltPanel({
         onFocus={onInputFocus}
         onBlur={onInputBlur}
         onChange={(event) => onInput(event.target.value)}
-        placeholder="Ask WALT about operations, the dataset, or an anomaly…"
+        placeholder="Ask WALT about operations, SAP sheets, or an anomaly…"
         aria-label="Ask WALT"
       />
       {loading
@@ -145,8 +189,7 @@ export function WaltPanel({
     </form>
 
     <footer className="walt-panel-footer">
-      <p><ShieldCheck size={12} />Operational decisions must be verified by the responsible human approver.</p>
-      <span>Popup conversation · stays on this page</span>
+      <p><ShieldCheck size={12} />Human-in-the-loop · Changes require human approval</p>
     </footer>
   </section>
 }

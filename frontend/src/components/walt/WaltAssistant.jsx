@@ -29,6 +29,7 @@ export function WaltAssistant({
   dashboard,
   architecture,
   onChatStream,
+  onSelectAnomaly,
   onWaltConfirm,
   onWaltFeedback,
   onWaltResolve,
@@ -254,6 +255,8 @@ export function WaltAssistant({
 
   const viewport = viewportBounds()
   const responsiveMascotSize = getMascotSize()
+  const preferredHeight = Math.min(620, Math.max(380, viewport.height - 28))
+  const preferredWidth = Math.min(540, Math.max(340, viewport.width - 28))
   const popupPlacement = calculateWaltPopupPosition(
     {
       x: position.x,
@@ -261,7 +264,7 @@ export function WaltAssistant({
       ...responsiveMascotSize,
     },
     viewport,
-    { width: 580, height: 680 },
+    { width: preferredWidth, height: preferredHeight },
   )
 
   return (
@@ -297,6 +300,7 @@ export function WaltAssistant({
       onInputBlur={() => setInputFocused(false)}
       onInputFocus={() => { setInputFocused(true); markActive() }}
       onMinimize={closePanel}
+      onSelectAnomaly={onSelectAnomaly}
       placement={popupPlacement}
       requestActions={requestActions}
       onRetry={chat.retry}
