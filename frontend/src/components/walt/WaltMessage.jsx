@@ -1,4 +1,4 @@
-import { BellRing, CheckCircle2, ChevronRight, Clock3, Database, MapPin, Radio, Send, ShieldCheck, ThumbsDown, ThumbsUp, UserRound, X } from 'lucide-react'
+import { BellRing, CheckCircle2, ChevronRight, Clock3, Database, MapPin, Radio, Send, ShieldCheck, Sparkles, ThumbsDown, ThumbsUp, UserRound, X } from 'lucide-react'
 import { Markdown } from '../Markdown'
 import { WaltAgentFlow } from './WaltAgentFlow'
 
