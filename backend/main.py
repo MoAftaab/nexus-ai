@@ -656,16 +656,30 @@ async def anomalies(
     status: str | None = Query(default=None),
     search: str | None = Query(default=None),
     persona: str | None = Query(default=None),
+    authorization: str | None = Header(default=None),
 ) -> dict[str, object]:
+    user = current_user(authorization)
     results = store.anomalies(severity=severity, status=status, search=search, persona=persona)
+    # Findings are site-scoped operational data.  The old route returned the
+    # complete queue and only failed later when an operator tried to create a
+    # governed change for a finding belonging to another site.  Filter at the
+    # read boundary so Risk Intelligence and every consumer of this endpoint
+    # show only findings the signed-in user can actually work on.
+    results = [item for item in results if can_access_site(user, item.site_id)]
     return {"items": results, "total": len(results)}
 
 
 @app.get("/api/anomalies/{anomaly_id}")
-async def anomaly(anomaly_id: str) -> object:
+async def anomaly(anomaly_id: str, authorization: str | None = Header(default=None)) -> object:
+    user = current_user(authorization)
     result = store.anomaly(anomaly_id)
     if not result:
         raise HTTPException(status_code=404, detail="Anomaly not found")
+    if not can_access_site(user, result.site_id):
+        raise HTTPException(
+            status_code=403,
+            detail=f"This finding belongs to {result.site_id} and is outside the signed-in user's site scope",
+        )
     return result
 
 
