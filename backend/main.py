@@ -28,7 +28,7 @@ from app.services.change_control import (
     _activate_step, _audit, build_change_preview, cancel_change_request, create_change_request, decide_approval,
     diff_snapshots, execute_approved_change, inbox as approval_inbox, list_requests,
     reconcile_active_assignments, revise_change_request, rollback_change, serialize_request,
-    submit_change_request, workflow_summary,
+    submit_change_request, workflow_summary, DuplicateChangeRequestError,
 )
 from app.services.notifications import create_notification, list_notifications, mark_notification_read, notify_assignment_failure
 from app.services.audit_reporting import audit_event_rows, build_audit_request_rows, build_audit_workbook, verify_audit_chain
@@ -180,6 +180,8 @@ async def change_create(payload: dict[str, object], authorization: str | None = 
         )
     try:
         request = create_change_request(payload, user, store.repository, store)
+    except DuplicateChangeRequestError as error:
+        raise HTTPException(status_code=409, detail={"message": str(error), "request_id": error.request_id}) from error
     except PermissionError as error:
         raise HTTPException(status_code=403, detail=str(error)) from error
     except (KeyError, TypeError, ValueError) as error:

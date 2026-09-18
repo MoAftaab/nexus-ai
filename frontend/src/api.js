@@ -38,7 +38,10 @@ async function request(path, options = {}) {
   })
   if (!response.ok) {
     const error = await response.json().catch(() => ({}))
-    throw new Error(errorMessage(error.detail, `Request failed (${response.status})`))
+    const failure = new Error(errorMessage(error.detail, `Request failed (${response.status})`))
+    failure.status = response.status
+    failure.requestId = error.detail && typeof error.detail === 'object' && !Array.isArray(error.detail) ? error.detail.request_id : undefined
+    throw failure
   }
   return response.json()
 }

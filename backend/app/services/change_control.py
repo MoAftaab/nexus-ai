@@ -447,6 +447,14 @@ def _audit(repo: Repository, event_type: str, user: dict[str, Any], request: Cha
     return payload
 
 
+class DuplicateChangeRequestError(ValueError):
+    """Raised when the same requester already has an active request for a control."""
+
+    def __init__(self, request_id: str):
+        self.request_id = request_id
+        super().__init__(f"An active change request already exists for this finding and control: {request_id}")
+
+
 def create_change_request(preview: dict[str, Any], user: dict[str, Any], repo: Repository, store=None) -> ChangeRequestModel:
     if user.get("role") != "operator":
         raise PermissionError("Only an Operations Operator can create a governed change-request draft")
@@ -472,6 +480,21 @@ def create_change_request(preview: dict[str, Any], user: dict[str, Any], repo: R
     stages = compute_approval_stages(preview["severity"], preview["impact_euros"], bool(preview.get("is_regulated")), policy_for_route)
     if user.get("role") != "admin" and user.get("role") in {stage["required_role"] for stage in stages}:
         raise PermissionError("The requester cannot also be an approval owner for this request")
+    terminal_statuses = {"rejected", "cancelled", "verified", "rolled_back", "stale"}
+    with repo.session() as session:
+        existing = session.scalar(
+            select(ChangeRequestModel)
+            .where(
+                ChangeRequestModel.anomaly_id == str(preview["anomaly_id"]),
+                ChangeRequestModel.action_id == str(preview["action_id"]),
+                ChangeRequestModel.site_id == site_id,
+                ChangeRequestModel.requested_by == user["user_id"],
+                ~ChangeRequestModel.status.in_(terminal_statuses),
+            )
+            .order_by(ChangeRequestModel.created_at.desc())
+        )
+    if existing:
+        raise DuplicateChangeRequestError(existing.request_id)
     request = ChangeRequestModel(request_id=f"CR-{uuid.uuid4().hex[:12].upper()}", anomaly_id=preview["anomaly_id"], action_id=preview["action_id"], site_id=site_id, status="draft", severity=preview["severity"], impact_euros=int(preview["impact_euros"]), is_regulated=bool(preview.get("is_regulated")), requested_by=user["user_id"], policy_version=policy.version, before_snapshot=deepcopy(preview["before_snapshot"]), proposed_snapshot=deepcopy(preview["proposed_snapshot"]), source_hash=preview["source_hash"], payload={"title": preview.get("title", ""), "target_record_ids": preview.get("target_record_ids", []), "expected": preview.get("expected", {}), "requires_revision": False, "effect": {"status": "planned", "value_protected": int(preview.get("expected", {}).get("value_protected", preview.get("impact_euros", 0))), "fields": snapshot_data_preview(preview["before_snapshot"], preview["proposed_snapshot"])}})
     with repo.session() as session:
         session.add(request)

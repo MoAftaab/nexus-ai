@@ -111,6 +111,16 @@ def test_reminder_escalation_and_sla_actions_are_confirmed_and_idempotent(client
         assert len(automatic) == 1
 
 
+def test_duplicate_active_change_request_is_rejected_with_existing_request_id(client, login_as):
+    requester, request = _create_submitted(client, login_as, high=True)
+    preview = client.post("/api/changes/preview", headers=requester, json={"anomaly_id": request["anomaly_id"], "action_id": request["action_id"]})
+    assert preview.status_code == 200, preview.text
+    duplicate = client.post("/api/changes", headers=requester, json=preview.json())
+    assert duplicate.status_code == 409, duplicate.text
+    assert duplicate.json()["detail"]["request_id"] == request["request_id"]
+    assert "already exists" in duplicate.json()["detail"]["message"]
+
+
 def test_unconfirmed_preview_expires_when_owner_changes(client, login_as):
     admin = login_as(client, "admin@nexusai.demo")
     client.post("/api/admin/users", headers=admin, json={"email": "handoverlead@nexusai.demo", "display_name": "Handover Lead", "role": "lead", "site_scopes": ["wolfsburg"]})
