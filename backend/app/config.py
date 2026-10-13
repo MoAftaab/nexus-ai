@@ -28,7 +28,7 @@ class Settings(BaseSettings):
 
     agentrouter_api_key: str | None = None
     agentrouter_base_url: str = "https://agentrouter.org"
-    agentrouter_model: str = "claude-opus-4-8"
+    agentrouter_model: str = "deepseek-v4-flash"
 
     frontend_url: str = "http://localhost:5173"
     demo_mode: bool = True

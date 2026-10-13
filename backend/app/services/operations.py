@@ -1650,7 +1650,7 @@ All corrective actions require human approval before source data changes. The au
                 "flagged_over_50": sum(1 for _, score in scores if score >= .5),
             },
             "llm": {
-                "provider": {"codecraft": "CodeCraft", "openai": "Direct OpenAI", "ollama": "Ollama", "agentrouter": "AgentRouter Claude"}.get(self._get_active_provider(), "Deterministic Fallback"),
+                "provider": {"codecraft": "CodeCraft", "openai": "Direct OpenAI", "ollama": "Ollama", "agentrouter": "AgentRouter DeepSeek"}.get(self._get_active_provider(), "Deterministic Fallback"),
                 "model": self._get_active_model(),
                 "enabled": self._get_active_provider() != "deterministic",
                 "specialists": 5,
@@ -1688,7 +1688,7 @@ All corrective actions require human approval before source data changes. The au
     def agent_architecture(self) -> dict[str, object]:
         provider = self._get_active_provider()
         dashboard = self.dashboard()
-        provider_label = {"codecraft": "CodeCraft", "openai": "Direct OpenAI", "ollama": "Ollama", "agentrouter": "AgentRouter Claude"}.get(provider, "Evidence mode")
+        provider_label = {"codecraft": "CodeCraft", "openai": "Direct OpenAI", "ollama": "Ollama", "agentrouter": "AgentRouter DeepSeek"}.get(provider, "Evidence mode")
         return {"model": self._get_active_model(), "provider": provider, "provider_label": provider_label, "enabled": provider != "deterministic", "orchestrator": "Orchestrator (WALT)", "specialists": [
             {"name": "Ingestion Agent", "responsibility": "Load and normalise Excel/SAP sheets, resolve keys, build unified view", "input": "6 SAP sheets: Material_Master, Inventory_Stock, Warehouse_Bin, Deliveries_Dispatch, Purchase_Replenish, Vendor_Master"},
             {"name": "Data-Quality Agent", "responsibility": "Detect bad/missing/duplicate/obsolete master data (A1–A6)", "input": "Material master fields, UoM, reorder point, safety stock, hazmat, lifecycle"},

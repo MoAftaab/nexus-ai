@@ -191,7 +191,7 @@ class LLMClient:
         elif ar_ok:
             self.active_provider = "agentrouter"
             self.active_model = self.settings.agentrouter_model
-            print(f"  >>> DEFAULT MODEL SELECTED: AgentRouter Claude ({self.active_model}) [ACTIVE - OpenAI Fallback]")
+            print(f"  >>> DEFAULT MODEL SELECTED: AgentRouter ({self.active_model}) [ACTIVE]")
         else:
             self.active_provider = "deterministic"
             self.active_model = "nexus_deterministic"

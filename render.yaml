@@ -19,6 +19,12 @@ services:
         value: gpt-5.6-luna
       - key: OLLAMA_ENABLED
         value: "false" # enable only when the deployment can reach an Ollama host
+      - key: AGENTROUTER_API_KEY
+        sync: false # set in the Render dashboard, never committed
+      - key: AGENTROUTER_BASE_URL
+        value: https://agentrouter.org
+      - key: AGENTROUTER_MODEL
+        value: deepseek-v4-flash
       - key: FRONTEND_URL
         sync: false # set to the Vercel URL once known
       - key: DEMO_MODE
