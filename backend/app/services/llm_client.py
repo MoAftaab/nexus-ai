@@ -9,6 +9,7 @@ Architecture:
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import logging
@@ -229,6 +230,7 @@ class LLMClient:
                     return text
             except Exception as exc:
                 last_exc = exc
+                logger.warning("AgentRouter attempt %d failed: %s", attempt + 1, exc)
                 if attempt == 0:
                     await asyncio.sleep(1.0)
         raise last_exc or RuntimeError("AgentRouter generation failed after retries")
