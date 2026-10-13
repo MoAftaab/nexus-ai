@@ -211,13 +211,27 @@ class LLMClient:
             "system": instructions,
             "messages": [{"role": "user", "content": input_text}],
         }
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.post(url, json=payload, headers=self._agentrouter_headers())
-            if resp.status_code != 200:
-                raise RuntimeError(f"AgentRouter HTTP {resp.status_code}: {resp.text[:200]}")
-            data = resp.json()
-            blocks = [b.get("text", "") for b in data.get("content", []) if b.get("type") == "text"]
-            return "\n".join(blocks).strip()
+        last_exc: Exception | None = None
+        for attempt in range(2):
+            try:
+                async with httpx.AsyncClient(timeout=60.0) as client:
+                    resp = await client.post(url, json=payload, headers=self._agentrouter_headers())
+                    if resp.status_code != 200:
+                        raise RuntimeError(f"AgentRouter HTTP {resp.status_code}: {resp.text[:200]}")
+                    if not resp.text or not resp.text.strip():
+                        raise RuntimeError("AgentRouter returned an empty response body")
+                    data = resp.json()
+                    blocks = [b.get("text", "") for b in data.get("content", []) if b.get("type") == "text"]
+                    text = "\n".join(blocks).strip()
+                    if not text:
+                        thinking = [b.get("thinking", "") for b in data.get("content", []) if b.get("type") == "thinking"]
+                        text = "\n".join(thinking).strip()
+                    return text
+            except Exception as exc:
+                last_exc = exc
+                if attempt == 0:
+                    await asyncio.sleep(1.0)
+        raise last_exc or RuntimeError("AgentRouter generation failed after retries")
 
     async def _generate_compatible(
         self,
