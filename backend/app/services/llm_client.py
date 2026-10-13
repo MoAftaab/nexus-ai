@@ -105,13 +105,13 @@ class LLMClient:
         return await self._probe_compatible("ollama")
 
     async def probe_agentrouter(self) -> tuple[bool, int, str]:
-        """Test AgentRouter Claude API health."""
+        """Test AgentRouter API health using /v1/chat/completions."""
         if not self.settings.agentrouter_api_key:
             return False, 0, "No AgentRouter API key configured"
-        url = f"{self.settings.agentrouter_base_url.rstrip('/')}/v1/messages"
+        url = f"{self.settings.agentrouter_base_url.rstrip('/')}/v1/chat/completions"
         payload = {
             "model": self.settings.agentrouter_model,
-            "max_tokens": 10,
+            "max_tokens": 50,
             "messages": [{"role": "user", "content": "ping"}],
         }
         for attempt in range(2):
@@ -204,13 +204,15 @@ class LLMClient:
     async def _generate_agentrouter(
         self, instructions: str, input_text: str, temperature: float = 0.0, max_tokens: int = 2048
     ) -> str:
-        url = f"{self.settings.agentrouter_base_url.rstrip('/')}/v1/messages"
+        url = f"{self.settings.agentrouter_base_url.rstrip('/')}/v1/chat/completions"
         payload = {
             "model": self.settings.agentrouter_model,
             "max_tokens": max_tokens,
             "temperature": temperature,
-            "system": instructions,
-            "messages": [{"role": "user", "content": input_text}],
+            "messages": [
+                {"role": "system", "content": instructions},
+                {"role": "user", "content": input_text},
+            ],
         }
         last_exc: Exception | None = None
         for attempt in range(2):
@@ -222,12 +224,11 @@ class LLMClient:
                     if not resp.text or not resp.text.strip():
                         raise RuntimeError("AgentRouter returned an empty response body")
                     data = resp.json()
-                    blocks = [b.get("text", "") for b in data.get("content", []) if b.get("type") == "text"]
-                    text = "\n".join(blocks).strip()
-                    if not text:
-                        thinking = [b.get("thinking", "") for b in data.get("content", []) if b.get("type") == "thinking"]
-                        text = "\n".join(thinking).strip()
-                    return text
+                    msg = data.get("choices", [{}])[0].get("message", {})
+                    content = msg.get("content", "")
+                    if not content:
+                        content = msg.get("reasoning_content", "")
+                    return content.strip()
             except Exception as exc:
                 last_exc = exc
                 logger.warning("AgentRouter attempt %d failed: %s", attempt + 1, exc)
@@ -292,14 +293,16 @@ class LLMClient:
     async def _stream_agentrouter(
         self, instructions: str, input_text: str, temperature: float = 0.0, max_tokens: int = 2048
     ) -> AsyncIterator[str]:
-        url = f"{self.settings.agentrouter_base_url.rstrip('/')}/v1/messages"
+        url = f"{self.settings.agentrouter_base_url.rstrip('/')}/v1/chat/completions"
         payload = {
             "model": self.settings.agentrouter_model,
             "max_tokens": max_tokens,
             "temperature": temperature,
             "stream": True,
-            "system": instructions,
-            "messages": [{"role": "user", "content": input_text}],
+            "messages": [
+                {"role": "system", "content": instructions},
+                {"role": "user", "content": input_text},
+            ],
         }
         async with httpx.AsyncClient(timeout=90.0) as client:
             async with client.stream("POST", url, headers=self._agentrouter_headers(), json=payload) as response:
@@ -316,10 +319,10 @@ class LLMClient:
                             break
                         try:
                             event_data = json.loads(data_str)
-                            if event_data.get("type") == "content_block_delta":
-                                delta = event_data.get("delta", {})
-                                if delta.get("type") == "text_delta":
-                                    yield delta.get("text", "")
+                            delta = event_data.get("choices", [{}])[0].get("delta", {})
+                            content = delta.get("content", "")
+                            if content:
+                                yield content
                         except Exception:
                             continue
 
